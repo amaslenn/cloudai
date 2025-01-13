@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "SlurmContainerCmdArgs": {
+      "additionalProperties": false,
+      "description": "Command line arguments for a generic Slurm container test.",
+      "properties": {
+        "docker_image_url": {
+          "title": "Docker Image Url",
+          "type": "string"
+        },
+        "repository_url": {
+          "title": "Repository Url",
+          "type": "string"
+        },
+        "repository_commit_hash": {
+          "title": "Repository Commit Hash",
+          "type": "string"
+        },
+        "mcore_vfm_repo": {
+          "title": "Mcore Vfm Repo",
+          "type": "string"
+        },
+        "mcore_vfm_commit_hash": {
+          "title": "Mcore Vfm Commit Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "docker_image_url",
+        "repository_url",
+        "repository_commit_hash",
+        "mcore_vfm_repo",
+        "mcore_vfm_commit_hash"
+      ],
+      "title": "SlurmContainerCmdArgs",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Test definition for a generic Slurm container test.",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "test_template_name": {
+      "title": "Test Template Name",
+      "type": "string"
+    },
+    "cmd_args": {
+      "$ref": "#/$defs/SlurmContainerCmdArgs"
+    },
+    "extra_env_vars": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Env Vars",
+      "type": "object"
+    },
+    "extra_cmd_args": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Cmd Args",
+      "type": "object"
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "test_template_name",
+    "cmd_args"
+  ],
+  "title": "SlurmContainerTestDefinition",
+  "type": "object"
+}

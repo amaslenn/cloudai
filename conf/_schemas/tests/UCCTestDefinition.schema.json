@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "UCCCmdArgs": {
+      "additionalProperties": false,
+      "description": "UCC test command arguments.",
+      "properties": {
+        "docker_image_url": {
+          "default": "nvcr.io/nvidia/pytorch:24.02-py3",
+          "title": "Docker Image Url",
+          "type": "string"
+        },
+        "collective": {
+          "default": "alltoall",
+          "enum": [
+            "allgather",
+            "allgatherv",
+            "allreduce",
+            "alltoall",
+            "alltoallv",
+            "barrier",
+            "bcast",
+            "gather",
+            "gatherv",
+            "reduce",
+            "reduce_scatter",
+            "reduce_scatterv",
+            "scatter",
+            "scatterv",
+            "memcpy",
+            "reducedt",
+            "reducedt_strided"
+          ],
+          "title": "Collective",
+          "type": "string"
+        },
+        "b": {
+          "default": 1,
+          "title": "B",
+          "type": "integer"
+        },
+        "e": {
+          "default": "8M",
+          "title": "E",
+          "type": "string"
+        }
+      },
+      "title": "UCCCmdArgs",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Test object for UCC.",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "test_template_name": {
+      "title": "Test Template Name",
+      "type": "string"
+    },
+    "cmd_args": {
+      "$ref": "#/$defs/UCCCmdArgs"
+    },
+    "extra_env_vars": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Env Vars",
+      "type": "object"
+    },
+    "extra_cmd_args": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Cmd Args",
+      "type": "object"
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "test_template_name",
+    "cmd_args"
+  ],
+  "title": "UCCTestDefinition",
+  "type": "object"
+}

@@ -22,6 +22,7 @@ from .handlers import (
     handle_dry_run_and_run,
     handle_generate_report,
     handle_install_and_uninstall,
+    handle_json_schema,
     handle_verify_all_configs,
 )
 
@@ -37,6 +38,7 @@ class CloudAICLI:
             "run",
             "uninstall",
             "verify-configs",
+            "json-schema",
         }
 
         self.parser = argparse.ArgumentParser(description="Cloud AI")
@@ -110,6 +112,10 @@ class CloudAICLI:
                 tests_dir=False,
             )
             p.add_argument("configs_dir", help="Path to a file or the directory containing the TOML files.", type=Path)
+
+        if "json-schema" in self.DEFAULT_MODES:
+            p = self.add_command("json-schema", "Re-generate JSON schemas for CloudAI models.", handle_json_schema)
+            p.add_argument("--generate", help="Generate the JSON schemas.", action="store_true")
 
         return self.parser
 

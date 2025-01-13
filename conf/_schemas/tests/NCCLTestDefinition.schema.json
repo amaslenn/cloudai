@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "NCCLCmdArgs": {
+      "additionalProperties": false,
+      "description": "NCCL test command arguments.",
+      "properties": {
+        "docker_image_url": {
+          "default": "nvcr.io/nvidia/pytorch:24.02-py3",
+          "title": "Docker Image Url",
+          "type": "string"
+        },
+        "subtest_name": {
+          "default": "all_reduce_perf_mpi",
+          "enum": [
+            "all_reduce_perf_mpi",
+            "all_gather_perf_mpi",
+            "alltoall_perf_mpi",
+            "broadcast_perf_mpi",
+            "gather_perf_mpi",
+            "hypercube_perf_mpi",
+            "reduce_perf_mpi",
+            "reduce_scatter_perf_mpi",
+            "scatter_perf_mpi",
+            "sendrecv_perf_mpi",
+            "bisection_perf_mpi",
+            "all_reduce_perf",
+            "all_gather_perf",
+            "alltoall_perf",
+            "broadcast_perf",
+            "gather_perf",
+            "hypercube_perf",
+            "reduce_perf",
+            "reduce_scatter_perf",
+            "scatter_perf",
+            "sendrecv_perf",
+            "bisection_perf"
+          ],
+          "title": "Subtest Name",
+          "type": "string"
+        },
+        "nthreads": {
+          "default": 1,
+          "title": "Nthreads",
+          "type": "integer"
+        },
+        "ngpus": {
+          "default": 1,
+          "title": "Ngpus",
+          "type": "integer"
+        },
+        "minbytes": {
+          "default": "32M",
+          "title": "Minbytes",
+          "type": "string"
+        },
+        "maxbytes": {
+          "default": "32M",
+          "title": "Maxbytes",
+          "type": "string"
+        },
+        "stepbytes": {
+          "default": "1M",
+          "title": "Stepbytes",
+          "type": "string"
+        },
+        "op": {
+          "default": "sum",
+          "enum": [
+            "sum",
+            "prod",
+            "min",
+            "max",
+            "avg",
+            "all"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "datatype": {
+          "default": "float",
+          "title": "Datatype",
+          "type": "string"
+        },
+        "root": {
+          "default": 0,
+          "title": "Root",
+          "type": "integer"
+        },
+        "iters": {
+          "default": 20,
+          "title": "Iters",
+          "type": "integer"
+        },
+        "warmup_iters": {
+          "default": 5,
+          "title": "Warmup Iters",
+          "type": "integer"
+        },
+        "agg_iters": {
+          "default": 1,
+          "title": "Agg Iters",
+          "type": "integer"
+        },
+        "average": {
+          "default": 1,
+          "title": "Average",
+          "type": "integer"
+        },
+        "parallel_init": {
+          "default": 0,
+          "title": "Parallel Init",
+          "type": "integer"
+        },
+        "check": {
+          "default": 1,
+          "title": "Check",
+          "type": "integer"
+        },
+        "blocking": {
+          "default": 0,
+          "title": "Blocking",
+          "type": "integer"
+        },
+        "cudagraph": {
+          "default": 0,
+          "title": "Cudagraph",
+          "type": "integer"
+        }
+      },
+      "title": "NCCLCmdArgs",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Test object for NCCL.",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "test_template_name": {
+      "title": "Test Template Name",
+      "type": "string"
+    },
+    "cmd_args": {
+      "$ref": "#/$defs/NCCLCmdArgs"
+    },
+    "extra_env_vars": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Env Vars",
+      "type": "object"
+    },
+    "extra_cmd_args": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Cmd Args",
+      "type": "object"
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "test_template_name",
+    "cmd_args"
+  ],
+  "title": "NCCLTestDefinition",
+  "type": "object"
+}

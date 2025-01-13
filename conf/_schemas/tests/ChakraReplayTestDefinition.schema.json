@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "ChakraReplayCmdArgs": {
+      "additionalProperties": false,
+      "description": "ChakraReplay test command arguments.",
+      "properties": {
+        "docker_image_url": {
+          "title": "Docker Image Url",
+          "type": "string"
+        },
+        "mpi": {
+          "default": "pmix",
+          "title": "Mpi",
+          "type": "string"
+        },
+        "trace_type": {
+          "default": "et",
+          "title": "Trace Type",
+          "type": "string"
+        },
+        "trace_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trace Path"
+        },
+        "num_replays": {
+          "default": 1,
+          "title": "Num Replays",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "docker_image_url"
+      ],
+      "title": "ChakraReplayCmdArgs",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Test object for ChakraReplay.",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "test_template_name": {
+      "title": "Test Template Name",
+      "type": "string"
+    },
+    "cmd_args": {
+      "$ref": "#/$defs/ChakraReplayCmdArgs"
+    },
+    "extra_env_vars": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Env Vars",
+      "type": "object"
+    },
+    "extra_cmd_args": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Cmd Args",
+      "type": "object"
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "test_template_name",
+    "cmd_args"
+  ],
+  "title": "ChakraReplayTestDefinition",
+  "type": "object"
+}

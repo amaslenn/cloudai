@@ -16,12 +16,25 @@
 
 import argparse
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import List, Optional
 from unittest.mock import Mock
 
-from cloudai import Installable, Parser, Registry, ReportGenerator, Runner, System
+from cloudai import Installable, Parser, Registry, ReportGenerator, Runner, System, TestDefinition
+from cloudai.test_definitions import (
+    ChakraReplayTestDefinition,
+    GPTTestDefinition,
+    GrokTestDefinition,
+    NCCLTestDefinition,
+    NeMoLauncherTestDefinition,
+    NeMoRunTestDefinition,
+    NemotronTestDefinition,
+    SleepTestDefinition,
+    UCCTestDefinition,
+)
+from cloudai.test_definitions.slurm_container import SlurmContainerTestDefinition
 
 from ..parser import HOOK_ROOT
 
@@ -319,3 +332,27 @@ def load_tomls_by_type(tomls: List[Path]) -> dict[str, List[Path]]:
             files["unknown"].append(toml_file)
 
     return files
+
+
+def handle_json_schema(args: argparse.Namespace) -> int:
+    test_models: list[type[TestDefinition]] = [
+        ChakraReplayTestDefinition,
+        GPTTestDefinition,
+        GrokTestDefinition,
+        NCCLTestDefinition,
+        NeMoLauncherTestDefinition,
+        NeMoRunTestDefinition,
+        NemotronTestDefinition,
+        SleepTestDefinition,
+        SlurmContainerTestDefinition,
+        UCCTestDefinition,
+    ]
+    schemas_root = Path(__file__).parent.parent.parent.parent / "conf" / "_schemas"
+    if args.generate:
+        for model in test_models:
+            schema_path = schemas_root / "tests" / f"{model.__name__}.schema.json"
+            schema_path.parent.mkdir(parents=True, exist_ok=True)
+            schema = json.dumps(model.model_json_schema(), indent=2)
+            schema_path.write_text(schema)
+
+    return 0

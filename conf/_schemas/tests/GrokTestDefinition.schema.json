@@ -1,0 +1,993 @@
+{
+  "$defs": {
+    "GrokCmdArgs": {
+      "additionalProperties": false,
+      "description": "Grok test command arguments.",
+      "properties": {
+        "docker_image_url": {
+          "title": "Docker Image Url",
+          "type": "string"
+        },
+        "load_container": {
+          "default": true,
+          "title": "Load Container",
+          "type": "boolean"
+        },
+        "output_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Path"
+        },
+        "fdl": {
+          "$ref": "#/$defs/GrokFdl"
+        },
+        "fdl_config": {
+          "default": "paxml.tasks.lm.params.nvidia.Grok_Proxy",
+          "title": "Fdl Config",
+          "type": "string"
+        },
+        "enable_pgle": {
+          "default": true,
+          "title": "Enable Pgle",
+          "type": "boolean"
+        },
+        "setup_flags": {
+          "$ref": "#/$defs/SetupFlags"
+        },
+        "profile": {
+          "$ref": "#/$defs/GrokProfileXLAFlags"
+        },
+        "perf": {
+          "$ref": "#/$defs/GrokPerfXLAFlags"
+        }
+      },
+      "required": [
+        "docker_image_url"
+      ],
+      "title": "GrokCmdArgs",
+      "type": "object"
+    },
+    "GrokFdl": {
+      "additionalProperties": false,
+      "description": "FDL for Grok.",
+      "properties": {
+        "checkpoint_policy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "default": "\"save_iteration_input\"",
+          "title": "Checkpoint Policy"
+        },
+        "dcn_mesh_shape": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "default": "'[1, 8, 1, 1]'",
+          "title": "Dcn Mesh Shape"
+        },
+        "fprop_dtype": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "default": "bfloat16",
+          "title": "Fprop Dtype"
+        },
+        "ici_mesh_shape": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "default": "'[1, 1, 8, 1]'",
+          "title": "Ici Mesh Shape"
+        },
+        "max_steps": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 20,
+          "title": "Max Steps"
+        },
+        "num_gpus": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 64,
+          "title": "Num Gpus"
+        },
+        "num_microbatches": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 1,
+          "title": "Num Microbatches"
+        },
+        "num_stages": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 1,
+          "title": "Num Stages"
+        },
+        "percore_batch_size": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 1.0,
+          "title": "Percore Batch Size"
+        },
+        "use_fp8": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 1,
+          "title": "Use Fp8"
+        },
+        "use_repeated_layer": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Use Repeated Layer"
+        },
+        "combine_qkv": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Combine Qkv"
+        },
+        "dims_per_head": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 128,
+          "title": "Dims Per Head"
+        },
+        "hidden_dims": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 32768,
+          "title": "Hidden Dims"
+        },
+        "max_seq_len": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 8192,
+          "title": "Max Seq Len"
+        },
+        "model_dims": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 6144,
+          "title": "Model Dims"
+        },
+        "num_experts": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 8,
+          "title": "Num Experts"
+        },
+        "num_groups": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 64,
+          "title": "Num Groups"
+        },
+        "num_heads": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 48,
+          "title": "Num Heads"
+        },
+        "num_kv_heads": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 8,
+          "title": "Num Kv Heads"
+        },
+        "num_layers": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 64,
+          "title": "Num Layers"
+        },
+        "use_expert_parallel": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Use Expert Parallel"
+        },
+        "use_te_dpa": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Use Te Dpa"
+        },
+        "vocab_size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 131072,
+          "title": "Vocab Size"
+        }
+      },
+      "title": "GrokFdl",
+      "type": "object"
+    },
+    "GrokPerfXLAFlags": {
+      "additionalProperties": false,
+      "description": "Grok performance XLA flags.",
+      "properties": {
+        "xla_disable_hlo_passes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "default": "rematerialization",
+          "title": "Xla Disable Hlo Passes"
+        },
+        "xla_dump_hlo_pass_re": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "default": ".*",
+          "title": "Xla Dump Hlo Pass Re"
+        },
+        "xla_gpu_enable_all_gather_combine_by_dim": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Enable All Gather Combine By Dim"
+        },
+        "xla_gpu_enable_highest_priority_async_stream": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable Highest Priority Async Stream"
+        },
+        "xla_gpu_enable_latency_hiding_scheduler": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable Latency Hiding Scheduler"
+        },
+        "xla_gpu_enable_pipelined_all_gather": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable Pipelined All Gather"
+        },
+        "xla_gpu_enable_pipelined_all_reduce": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable Pipelined All Reduce"
+        },
+        "xla_gpu_enable_pipelined_reduce_scatter": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable Pipelined Reduce Scatter"
+        },
+        "xla_gpu_enable_reduce_scatter_combine_by_dim": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Enable Reduce Scatter Combine By Dim"
+        },
+        "xla_gpu_enable_triton_gemm": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Enable Triton Gemm"
+        },
+        "xla_gpu_enable_triton_softmax_fusion": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Enable Triton Softmax Fusion"
+        },
+        "xla_gpu_enable_while_loop_double_buffering": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable While Loop Double Buffering"
+        },
+        "xla_gpu_graph_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 0,
+          "title": "Xla Gpu Graph Level"
+        },
+        "combine_threshold_bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 301989888,
+          "title": "Combine Threshold Bytes"
+        },
+        "xla_gpu_run_post_layout_collective_pipeliner": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Run Post Layout Collective Pipeliner"
+        },
+        "xla_gpu_use_memcpy_local_p2p": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Use Memcpy Local P2P"
+        },
+        "xla_gpu_pgle_profile_file_or_directory_path": {
+          "default": "/opt/paxml/workspace/pgle_output_profile.pbtxt",
+          "title": "Xla Gpu Pgle Profile File Or Directory Path",
+          "type": "string"
+        }
+      },
+      "title": "GrokPerfXLAFlags",
+      "type": "object"
+    },
+    "GrokProfileXLAFlags": {
+      "additionalProperties": false,
+      "description": "Grok profile XLA flags.",
+      "properties": {
+        "xla_disable_hlo_passes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "default": "rematerialization",
+          "title": "Xla Disable Hlo Passes"
+        },
+        "xla_dump_hlo_pass_re": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "default": ".*",
+          "title": "Xla Dump Hlo Pass Re"
+        },
+        "xla_gpu_enable_all_gather_combine_by_dim": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Enable All Gather Combine By Dim"
+        },
+        "xla_gpu_enable_highest_priority_async_stream": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable Highest Priority Async Stream"
+        },
+        "xla_gpu_enable_latency_hiding_scheduler": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Enable Latency Hiding Scheduler"
+        },
+        "xla_gpu_enable_pipelined_all_gather": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable Pipelined All Gather"
+        },
+        "xla_gpu_enable_pipelined_all_reduce": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable Pipelined All Reduce"
+        },
+        "xla_gpu_enable_pipelined_reduce_scatter": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable Pipelined Reduce Scatter"
+        },
+        "xla_gpu_enable_reduce_scatter_combine_by_dim": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Enable Reduce Scatter Combine By Dim"
+        },
+        "xla_gpu_enable_triton_gemm": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Enable Triton Gemm"
+        },
+        "xla_gpu_enable_triton_softmax_fusion": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Enable Triton Softmax Fusion"
+        },
+        "xla_gpu_enable_while_loop_double_buffering": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": true,
+          "title": "Xla Gpu Enable While Loop Double Buffering"
+        },
+        "xla_gpu_graph_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          ],
+          "default": 0,
+          "title": "Xla Gpu Graph Level"
+        },
+        "xla_gpu_disable_async_collectives": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "default": "ALLREDUCE,ALLGATHER,REDUCESCATTER,COLLECTIVEBROADCAST,ALLTOALL,COLLECTIVEPERMUTE",
+          "title": "Xla Gpu Disable Async Collectives"
+        },
+        "xla_gpu_run_post_layout_collective_pipeliner": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          ],
+          "default": false,
+          "title": "Xla Gpu Run Post Layout Collective Pipeliner"
+        }
+      },
+      "title": "GrokProfileXLAFlags",
+      "type": "object"
+    },
+    "SetupFlags": {
+      "additionalProperties": false,
+      "description": "Setup flags configuration.",
+      "properties": {
+        "docker_workspace_dir": {
+          "default": "/opt/paxml/workspace/",
+          "title": "Docker Workspace Dir",
+          "type": "string"
+        },
+        "enable_checkpoint_saving": {
+          "default": false,
+          "title": "Enable Checkpoint Saving",
+          "type": "boolean"
+        },
+        "gpus_per_node": {
+          "default": 8,
+          "title": "Gpus Per Node",
+          "type": "integer"
+        },
+        "mpi": {
+          "default": "pmix",
+          "title": "Mpi",
+          "type": "string"
+        },
+        "num_nodes": {
+          "default": 8,
+          "title": "Num Nodes",
+          "type": "integer"
+        },
+        "tfds_data_dir": {
+          "default": "/opt/dataset",
+          "title": "Tfds Data Dir",
+          "type": "string"
+        }
+      },
+      "title": "SetupFlags",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Test object for Grok.",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "test_template_name": {
+      "title": "Test Template Name",
+      "type": "string"
+    },
+    "cmd_args": {
+      "$ref": "#/$defs/GrokCmdArgs"
+    },
+    "extra_env_vars": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Env Vars",
+      "type": "object"
+    },
+    "extra_cmd_args": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Extra Cmd Args",
+      "type": "object"
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "test_template_name",
+    "cmd_args"
+  ],
+  "title": "GrokTestDefinition",
+  "type": "object"
+}
