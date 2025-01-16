@@ -290,6 +290,17 @@ class TestCLIDefaultModes:
                 output_dir=None,
             )
 
+    def test_json_schema_mode(self, cli: CloudAICLI):
+        assert "json-schema" in cli.handlers
+
+        args = cli.parser.parse_args(["json-schema"])
+        assert args == argparse.Namespace(
+            log_file="debug.log",
+            log_level="INFO",
+            mode="json-schema",
+            generate=False,
+        )
+
     @pytest.mark.parametrize(
         "mode_and_missing_options",
         [
@@ -301,6 +312,8 @@ class TestCLIDefaultModes:
             ("uninstall", ["--system-config", "--tests-dir"]),
             ("dry-run", ["--system-config", "--tests-dir", "--test-scenario"]),
             ("run", ["--system-config", "--tests-dir", "--test-scenario"]),
+            ("verify-configs", []),
+            ("json-schema", []),
         ],
     )
     def test_required_args(
