@@ -350,7 +350,8 @@ def handle_json_schema(args: argparse.Namespace) -> int:
     schemas_root = Path(__file__).parent.parent.parent.parent / "conf" / "_schemas"
     if args.generate:
         for model in test_models:
-            schema_path = schemas_root / "tests" / f"{model.__name__}.schema.json"
+            name = model.__name__.lower().replace("testdefinition", "")
+            schema_path = schemas_root / "tests" / f"{name}.schema.json"
             schema_path.parent.mkdir(parents=True, exist_ok=True)
             schema = json.dumps(model.model_json_schema(), indent=2)
             schema_path.write_text(schema)
