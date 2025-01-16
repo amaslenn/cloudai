@@ -23,6 +23,7 @@ from .nemo_launcher import NeMoLauncherCmdArgs, NeMoLauncherTestDefinition
 from .nemo_run import NeMoRunCmdArgs, NeMoRunTestDefinition
 from .nemotron import NemotronCmdArgs, NemotronTestDefinition
 from .sleep import SleepCmdArgs, SleepTestDefinition
+from .slurm_container import SlurmContainerCmdArgs, SlurmContainerTestDefinition
 from .ucc import UCCCmdArgs, UCCTestDefinition
 
 __all__ = [
@@ -46,4 +47,6 @@ __all__ = [
     "SleepTestDefinition",
     "UCCCmdArgs",
     "UCCTestDefinition",
+    "SlurmContainerCmdArgs",
+    "SlurmContainerTestDefinition",
 ]

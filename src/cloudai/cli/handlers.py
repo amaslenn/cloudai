@@ -32,9 +32,9 @@ from cloudai.test_definitions import (
     NeMoRunTestDefinition,
     NemotronTestDefinition,
     SleepTestDefinition,
+    SlurmContainerTestDefinition,
     UCCTestDefinition,
 )
-from cloudai.test_definitions.slurm_container import SlurmContainerTestDefinition
 
 from ..parser import HOOK_ROOT
 
