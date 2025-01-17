@@ -59,14 +59,14 @@ python -m venv venv
 source venv/bin/activate
 ```
 
-Next, install the required packages using pip:
-```bash
-pip install -r requirements.txt
-```
-
-After setting up the environment and installing dependencies, install the cloudai package itself:
+Next, install the required packages:
 ```bash
 pip install .
+```
+
+For development please use the following command:
+```bash
+pip install -e '.[dev]'  
 ```
 
 CloudAI supports five modes: install, dry-run, run, generate-report, and uninstall.
