@@ -28,6 +28,7 @@ class SlurmContainerCmdArgs(CmdArgs):
     repository_commit_hash: str
     mcore_vfm_repo: str
     mcore_vfm_commit_hash: str
+    cmd: str
 
 
 class SlurmContainerTestDefinition(TestDefinition):
