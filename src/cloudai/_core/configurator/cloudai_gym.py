@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,73 +14,77 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional, Tuple
+import asyncio
+import csv
+import logging
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
-import gymnasium as gym
 import numpy as np
-from gymnasium import spaces
 
-from cloudai._core.test_scenario import TestRun, TestScenario
-from cloudai.systems import SlurmSystem
+from cloudai._core.configurator.base_gym import BaseGym
+from cloudai._core.runner import Runner
+from cloudai._core.test_scenario import TestRun
+
+from ..reporter import Reporter
 
 
-class CloudAIGymEnv(gym.Env):
+class CloudAIGymEnv(BaseGym):
     """
     Custom Gym environment for CloudAI integration.
 
     Uses the TestRun object and actual runner methods to execute jobs.
     """
 
-    def __init__(self, test_run: TestRun, system: SlurmSystem, test_scenario: TestScenario):
+    def __init__(self, test_run: TestRun, runner: Runner):
         """
         Initialize the Gym environment using the TestRun object.
 
         Args:
             test_run (TestRun): A test run object that encapsulates cmd_args, extra_cmd_args, etc.
-            system (SlurmSystem): The system configuration for running the tests.
-            test_scenario (TestScenario): The test scenario configuration.
+            runner (Runner): The runner object to execute jobs.
         """
-        super(CloudAIGymEnv, self).__init__()
         self.test_run = test_run
+        self.runner = runner
+        self.test_scenario = runner.runner.test_scenario
+        self.max_steps = test_run.test.test_definition.agent_steps
+        super().__init__()
 
-        self.action_space = self.extract_action_space(self.test_run.test.cmd_args)
-        self.observation_space = self.define_observation_space()
-
-    def extract_action_space(self, cmd_args: dict) -> spaces.Dict:
+    def define_action_space(self) -> Dict[str, Any]:
         """
-        Extract the action space from the cmd_args dictionary.
-
-        Args:
-            cmd_args (dict): The command arguments dictionary from the TestRun object.
+        Define the action space for the environment.
 
         Returns:
-            spaces.Dict: A dictionary containing the action space variables and their feasible values.
+            Dict[str, Any]: The action space.
         """
-        action_space = {}
-        for key, value in cmd_args.items():
-            if isinstance(value, list):
-                action_space[key] = spaces.Discrete(len(value))
-            elif isinstance(value, dict):
-                for sub_key, sub_value in value.items():
-                    if isinstance(sub_value, list):
-                        action_space[f"{key}.{sub_key}"] = spaces.Discrete(len(sub_value))
-        return spaces.Dict(action_space)
+        action_space: Dict[str, Any] = {}
+        cmd_args_dict = self.test_run.test.test_definition.cmd_args.model_dump()
+        self.populate_action_space("", cmd_args_dict, action_space)
+        return action_space
 
-    def define_observation_space(self) -> spaces.Space:
+    def populate_action_space(self, prefix: str, d: dict, action_space: dict):
+        for key, value in d.items():
+            if isinstance(value, list):
+                action_space[f"{prefix}{key}"] = value
+            elif isinstance(value, dict):
+                self.populate_action_space(f"{prefix}{key}.", value, action_space)
+            else:
+                action_space[f"{prefix}{key}"] = [value]
+
+    def define_observation_space(self) -> list:
         """
         Define the observation space for the environment.
 
         Returns:
-            spaces.Space: The observation space.
+            list: The observation space.
         """
-        return spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
+        return [0.0]
 
     def reset(
         self,
-        *,
         seed: Optional[int] = None,
-        options: Optional[dict[str, Any]] = None,
-    ) -> Tuple[np.ndarray, dict[str, Any]]:
+        options: Optional[dict[str, Any]] = None,  # noqa: Vulture
+    ) -> Tuple[list, dict[str, Any]]:
         """
         Reset the environment and reinitialize the TestRun.
 
@@ -90,37 +94,49 @@ class CloudAIGymEnv(gym.Env):
 
         Returns:
             Tuple: A tuple containing:
-                - observation (np.ndarray): Initial observation.
+                - observation (list): Initial observation.
                 - info (dict): Additional info for debugging.
         """
-        super().reset(seed=seed, options=options)
+        if seed is not None:
+            np.random.seed(seed)
         self.test_run.current_iteration = 0
-        observation = np.array([0.0], dtype=np.float32)
+        observation = [0.0]
         info = {}
         return observation, info
 
-    def step(self, action: np.ndarray) -> tuple:
+    def step(self, action: Any) -> Tuple[list, float, bool, dict]:
         """
         Execute one step in the environment.
 
         Args:
-            action (np.ndarray): Action chosen by the agent.
+            action (Any): Action chosen by the agent.
 
         Returns:
-            tuple: A tuple containing:
-                - observation (np.ndarray): Updated system state.
+            Tuple: A tuple containing:
+                - observation (list): Updated system state.
                 - reward (float): Reward for the action taken.
                 - done (bool): Whether the episode is done.
                 - info (dict): Additional info for debugging.
         """
+        for key, value in action.items():
+            self.update_nested_attr(self.test_run.test.test_definition.cmd_args, key, value)
+
+        if not self.test_run.test.test_definition.constraint_check:
+            logging.info("Constraint check failed. Skipping step.")
+            return [-1.0], -1.0, True, {}
+        logging.info(f"Running step {self.test_run.current_iteration} with action {action}")
+        asyncio.run(self.runner.run())
+
         observation = self.get_observation(action)
-        reward = 0.0
+        reward = self.compute_reward(observation)
         done = False
         info = {}
 
+        self.write_trajectory(self.test_run.current_iteration, action, reward, observation)
+
         return observation, reward, done, info
 
-    def render(self, mode="human"):
+    def render(self, mode: str = "human"):
         """
         Render the current state of the TestRun.
 
@@ -129,21 +145,101 @@ class CloudAIGymEnv(gym.Env):
         """
         print(f"Step {self.test_run.current_iteration}: Parameters {self.test_run.test.cmd_args}")
 
-    def compute_reward(self) -> float:
+    def seed(self, seed: Optional[int] = None):
+        """
+        Set the seed for the environment's random number generator.
+
+        Args:
+            seed (Optional[int]): Seed for the environment's random number generator.
+        """
+        if seed is not None:
+            np.random.seed(seed)
+
+    def compute_reward(self, observation: list) -> float:
         """
         Compute a reward based on the TestRun result.
+
+        Args:
+            observation (list): The observation list containing the average value.
 
         Returns:
             float: Reward value.
         """
+        if observation and observation[0] != 0:
+            return 1.0 / observation[0]
         return 0.0
 
-    def get_observation(self, action) -> np.ndarray:
+    def get_observation(self, action: Any) -> list:
         """
         Get the observation from the TestRun object.
 
+        Args:
+            action (Any): Action taken by the agent.
+
         Returns:
-            np.ndarray: A scalar value representing the observation.
+            list: The observation.
         """
-        obs = action * 0.5
-        return np.array([obs], dtype=np.float32)
+        output_path = self.runner.runner.system.output_path / self.runner.runner.test_scenario.name
+
+        reporter = Reporter(self.runner.runner.system, self.test_scenario, output_path)
+        reporter.generate()
+
+        subdir = next(output_path.iterdir())
+        report_file_path = subdir / f"{self.test_run.current_iteration}" / f"{self.test_run.step}"
+
+        observation = self.parse_report(report_file_path)
+        return observation
+
+    def parse_report(self, output_path: Path) -> list:
+        """
+        Parse the generated report to extract the observation.
+
+        Args:
+            output_path (Path): The path to the runner's output.
+
+        Returns:
+            list: The extracted observation.
+        """
+        report_file_path = output_path / "report.txt"
+        if not report_file_path.exists():
+            return [-1.0]
+
+        with open(report_file_path, "r") as file:
+            lines = file.readlines()
+            for line in lines:
+                if line.startswith("Average:"):
+                    average_value = float(line.split(":")[1].strip())
+                    return [average_value]
+        return [-1.0]
+
+    def update_nested_attr(self, obj, attr_path, value):
+        """Update a nested attribute of an object."""
+        attrs = attr_path.split(".")
+        for attr in attrs[:-1]:
+            if hasattr(obj, attr):
+                obj = getattr(obj, attr)
+            else:
+                raise AttributeError(f"{type(obj).__name__!r} object has no attribute {attr!r}")
+        setattr(obj, attrs[-1], value)
+
+    def write_trajectory(self, step: int, action: Any, reward: float, observation: list):
+        """
+        Write the trajectory to a CSV file.
+
+        Args:
+            step (int): The current step number.
+            action (Any): The action taken by the agent.
+            reward (float): The reward received for the action.
+            observation (list): The observation after taking the action.
+        """
+        output_path = self.runner.runner.system.output_path / self.runner.runner.test_scenario.name
+        subdir = next(output_path.iterdir())
+        trajectory_file_path = subdir / f"{self.test_run.current_iteration}" / "trajectory.csv"
+
+        file_exists = trajectory_file_path.exists()
+
+        with open(trajectory_file_path, mode="a", newline="") as file:
+            writer = csv.writer(file)
+            if not file_exists:
+                writer.writerow(["step", "action", "reward", "observation"])
+            writer.writerow([step, action, reward, observation])

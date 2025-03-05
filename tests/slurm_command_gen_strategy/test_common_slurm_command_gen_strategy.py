@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,33 +20,38 @@ from unittest.mock import Mock, create_autospec
 
 import pytest
 
-from cloudai import Test, TestDefinition, TestRun, TestScenario, TestTemplate
+from cloudai import GitRepo, Test, TestRun, TestScenario, TestTemplate
 from cloudai.systems import SlurmSystem
 from cloudai.systems.slurm.strategy import SlurmCommandGenStrategy
+from cloudai.workloads.nccl_test import NCCLCmdArgs, NCCLTestDefinition
 from tests.conftest import create_autospec_dataclass
+
+
+class MySlurmCommandGenStrategy(SlurmCommandGenStrategy):
+    def _container_mounts(self, tr: TestRun) -> List[str]:
+        return []
 
 
 @pytest.fixture
 def strategy_fixture(slurm_system: SlurmSystem) -> SlurmCommandGenStrategy:
     cmd_args: Dict[str, Union[str, List[str]]] = {"test_arg": "test_value"}
-    strategy = SlurmCommandGenStrategy(slurm_system, cmd_args)
+    strategy = MySlurmCommandGenStrategy(slurm_system, cmd_args)
     return strategy
 
 
 @pytest.fixture
 def testrun_fixture(tmp_path: Path) -> TestRun:
-    mock_test_definition = Mock(spec=TestDefinition)
+    tdef = NCCLTestDefinition(
+        name="test_job",
+        description="Test description",
+        test_template_name="d",
+        cmd_args=NCCLCmdArgs(),
+        extra_env_vars={"TEST_VAR": "VALUE"},
+    )
     mock_test_template = Mock(spec=TestTemplate)
-
-    mock_test_definition.name = "test_job"
-    mock_test_definition.description = "Test description"
-    mock_test_definition.cmd_args_dict = {"test_arg": "test_value"}
-    mock_test_definition.extra_args_str = "extra_arg"
-    mock_test_definition.extra_env_vars = {"TEST_VAR": "VALUE"}
-
     mock_test_template.name = "test_template"
 
-    test = Test(test_definition=mock_test_definition, test_template=mock_test_template)
+    test = Test(test_definition=tdef, test_template=mock_test_template)
 
     return TestRun(name="test_job", test=test, output_path=tmp_path, num_nodes=2, nodes=["node1", "node2"])
 
@@ -129,7 +134,7 @@ def test_time_limit(time_limit: Optional[str], strategy_fixture: SlurmCommandGen
 def test_raises_if_no_default_partition(slurm_system: SlurmSystem):
     slurm_system.default_partition = ""
     with pytest.raises(ValueError) as exc_info:
-        SlurmCommandGenStrategy(slurm_system, {})
+        MySlurmCommandGenStrategy(slurm_system, {})
     assert (
         "Default partition not set in the Slurm system object. "
         "The 'default_partition' attribute should be properly defined in the Slurm "
@@ -264,3 +269,70 @@ def test_pre_test_post_test_combinations(
 
     for expected_line in expected_script_lines:
         assert expected_line in script_content, f"Expected '{expected_line}' in generated script but it was missing."
+
+
+def test_default_container_mounts(strategy_fixture: SlurmCommandGenStrategy, testrun_fixture: TestRun):
+    testrun_fixture.output_path = Path("./")
+    mounts = strategy_fixture.container_mounts(testrun_fixture)
+    assert len(mounts) == 1
+    assert mounts[0] == f"{testrun_fixture.output_path.absolute()}:/cloudai_run_results"
+
+
+def test_append_sbatch_directives(strategy_fixture: SlurmCommandGenStrategy, tmp_path: Path):
+    content: list[str] = []
+    strategy_fixture.system.extra_sbatch_args = ["--section=4", "--other-arg 1"]
+    strategy_fixture._append_sbatch_directives(content, {"node_list_str": ""}, tmp_path)
+
+    assert f"#SBATCH --partition={strategy_fixture.system.default_partition}" in content
+    for arg in strategy_fixture.system.extra_sbatch_args:
+        assert f"#SBATCH {arg}" in content
+
+
+def test_default_container_mounts_with_extra_mounts(strategy_fixture: SlurmCommandGenStrategy):
+    nccl = NCCLTestDefinition(
+        name="name",
+        description="desc",
+        test_template_name="tt",
+        cmd_args=NCCLCmdArgs(),
+        extra_container_mounts=["/host:/container"],
+    )
+    t = Test(test_definition=nccl, test_template=Mock())
+    tr = TestRun(name="t1", test=t, num_nodes=1, nodes=[], output_path=Path("./"))
+    mounts = strategy_fixture.container_mounts(tr)
+    assert len(mounts) == 2
+    assert mounts[0] == f"{tr.output_path.absolute()}:/cloudai_run_results"
+    assert mounts[1] == "/host:/container"
+
+
+def test_default_container_mounts_with_git_repos(strategy_fixture: SlurmCommandGenStrategy):
+    repo1 = GitRepo(url="./git_repo", commit="commit", mount_as="/git/r1", installed_path=Path.cwd())
+    repo2 = GitRepo(url="./git_repo2", commit="commit", mount_as="/git/r2", installed_path=Path.cwd())
+    nccl = NCCLTestDefinition(
+        name="name",
+        description="desc",
+        test_template_name="tt",
+        cmd_args=NCCLCmdArgs(),
+        git_repos=[repo1, repo2],
+    )
+    t = Test(test_definition=nccl, test_template=Mock())
+    tr = TestRun(name="t1", test=t, num_nodes=1, nodes=[], output_path=Path("./"))
+    mounts = strategy_fixture.container_mounts(tr)
+    assert len(mounts) == 3
+    assert mounts[0] == f"{tr.output_path.absolute()}:/cloudai_run_results"
+    assert mounts[1] == f"{repo1.installed_path}:{repo1.container_mount}"
+    assert mounts[2] == f"{repo2.installed_path}:{repo2.container_mount}"
+
+
+def test_ranks_mapping_cmd(strategy_fixture: SlurmCommandGenStrategy, testrun_fixture: TestRun):
+    slurm_args = {"job_name": "test_job", "num_nodes": 2, "node_list_str": "node1,node2"}
+
+    expected_command = (
+        f"srun --mpi={strategy_fixture.system.mpi} "
+        f"--output={testrun_fixture.output_path.absolute()}/mapping-stdout.txt "
+        f"--error={testrun_fixture.output_path.absolute()}/mapping-stderr.txt "
+        "bash -c "
+        r'"echo \$(date): \$(hostname):node \${SLURM_NODEID}:rank \${SLURM_PROCID}."'
+    )
+
+    result = strategy_fixture._ranks_mapping_cmd(slurm_args, testrun_fixture)
+    assert result == expected_command

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,13 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import Mock, patch
 
 import pytest
 
-from cloudai import Installable, InstallStatusResult
-from cloudai.installer.installables import DockerImage, GitRepo, PythonExecutable
+from cloudai import DockerImage, File, GitRepo, Installable, InstallStatusResult, PythonExecutable
 from cloudai.installer.slurm_installer import SlurmInstaller
 from cloudai.systems.slurm.slurm_system import SlurmSystem
 from cloudai.util.docker_image_cache_manager import DockerImageCacheResult
@@ -79,8 +79,11 @@ class TestInstallOneDocker:
 
 
 class TestInstallOneGitRepo:
-    def test_repo_exists(self, installer: SlurmInstaller):
-        git = GitRepo("./git_url", "commit_hash")
+    @pytest.fixture
+    def git(self) -> GitRepo:
+        return GitRepo(url="./git_url", commit="commit_hash")
+
+    def test_repo_exists(self, installer: SlurmInstaller, git: GitRepo):
         repo_path = installer.system.install_path / git.repo_name
         repo_path.mkdir()
         res = installer._install_one_git_repo(git)
@@ -88,62 +91,55 @@ class TestInstallOneGitRepo:
         assert res.message == f"Git repository already exists at {repo_path}."
         assert git.installed_path == repo_path
 
-    def test_repo_cloned(self, installer: SlurmInstaller):
-        git = GitRepo("./git_url", "commit_hash")
+    def test_repo_cloned(self, installer: SlurmInstaller, git: GitRepo):
         repo_path = installer.system.install_path / git.repo_name
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = CompletedProcess(args=[], returncode=0)
-            res = installer._clone_repository(git.git_url, repo_path)
+            res = installer._clone_repository(git.url, repo_path)
         assert res.success
-        mock_run.assert_called_once_with(["git", "clone", git.git_url, str(repo_path)], capture_output=True, text=True)
+        mock_run.assert_called_once_with(["git", "clone", git.url, str(repo_path)], capture_output=True, text=True)
 
-    def test_error_cloning_repo(self, installer: SlurmInstaller):
-        git = GitRepo("./git_url", "commit_hash")
+    def test_error_cloning_repo(self, installer: SlurmInstaller, git: GitRepo):
         repo_path = installer.system.install_path / git.repo_name
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = CompletedProcess(args=[], returncode=1, stderr="err")
-            res = installer._clone_repository(git.git_url, repo_path)
+            res = installer._clone_repository(git.url, repo_path)
         assert not res.success
         assert res.message == "Failed to clone repository: err"
 
-    def test_commit_checked_out(self, installer: SlurmInstaller):
-        git = GitRepo("./git_url", "commit_hash")
+    def test_commit_checked_out(self, installer: SlurmInstaller, git: GitRepo):
         repo_path = installer.system.install_path / git.repo_name
         repo_path.mkdir()
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = CompletedProcess(args=[], returncode=0)
-            res = installer._checkout_commit(git.commit_hash, repo_path)
+            res = installer._checkout_commit(git.commit, repo_path)
         assert res.success
         mock_run.assert_called_once_with(
-            ["git", "checkout", git.commit_hash], cwd=str(repo_path), capture_output=True, text=True
+            ["git", "checkout", git.commit], cwd=str(repo_path), capture_output=True, text=True
         )
 
-    def test_error_checking_out_commit(self, installer: SlurmInstaller):
-        git = GitRepo("./git_url", "commit_hash")
+    def test_error_checking_out_commit(self, installer: SlurmInstaller, git: GitRepo):
         repo_path = installer.system.install_path / git.repo_name
         repo_path.mkdir()
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = CompletedProcess(args=[], returncode=1, stderr="err")
-            res = installer._checkout_commit(git.commit_hash, repo_path)
+            res = installer._checkout_commit(git.commit, repo_path)
         assert not res.success
         assert res.message == "Failed to checkout commit: err"
 
-    def test_all_good_flow(self, installer: SlurmInstaller):
+    def test_all_good_flow(self, installer: SlurmInstaller, git: GitRepo):
         installer._clone_repository = Mock(return_value=InstallStatusResult(True))
         installer._checkout_commit = Mock(return_value=InstallStatusResult(True))
-        git = GitRepo("./git_url", "commit_hash")
         res = installer._install_one_git_repo(git)
         assert res.success
         assert git.installed_path == installer.system.install_path / git.repo_name
 
-    def test_uninstall_no_repo(self, installer: SlurmInstaller):
-        git = GitRepo("./git_url", "commit_hash")
+    def test_uninstall_no_repo(self, installer: SlurmInstaller, git: GitRepo):
         res = installer._uninstall_git_repo(git)
         assert res.success
-        assert res.message == f"Repository {git.git_url} is not cloned."
+        assert res.message == f"Repository {git.url} is not cloned."
 
-    def test_uninstall_ok(self, installer: SlurmInstaller):
-        git = GitRepo("./git_url", "commit_hash")
+    def test_uninstall_ok(self, installer: SlurmInstaller, git: GitRepo):
         (installer.system.install_path / git.repo_name).mkdir()
         (installer.system.install_path / git.repo_name / "file").touch()  # test with non-empty directory
         res = installer._uninstall_git_repo(git)
@@ -155,7 +151,7 @@ class TestInstallOneGitRepo:
 class TestInstallOnePythonExecutable:
     @pytest.fixture
     def git(self):
-        return GitRepo("./git_url", "commit_hash")
+        return GitRepo(url="./git_url", commit="commit_hash")
 
     def test_venv_created(self, installer: SlurmInstaller, git: GitRepo):
         py = PythonExecutable(git)
@@ -242,7 +238,7 @@ class TestInstallOnePythonExecutable:
         py = PythonExecutable(git)
         res = installer._is_python_executable_installed(py)
         assert not res.success
-        assert res.message == f"Git repository {py.git_repo.git_url} not cloned"
+        assert res.message == f"Git repository {py.git_repo.url} not cloned"
         assert not (installer.system.install_path / py.git_repo.repo_name).exists()
         assert not py.git_repo.installed_path
         assert not (installer.system.install_path / py.venv_name).exists()
@@ -253,7 +249,7 @@ class TestInstallOnePythonExecutable:
         (installer.system.install_path / py.git_repo.repo_name).mkdir()
         res = installer._is_python_executable_installed(py)
         assert not res.success
-        assert res.message == f"Virtual environment not created for {py.git_repo.git_url}"
+        assert res.message == f"Virtual environment not created for {py.git_repo.url}"
         assert py.git_repo.installed_path == installer.system.install_path / py.git_repo.repo_name
         assert (installer.system.install_path / py.git_repo.repo_name).exists()
         assert not (installer.system.install_path / py.venv_name).exists()
@@ -289,7 +285,61 @@ class TestInstallOnePythonExecutable:
         assert not py.venv_path
 
 
+class TestGitRepo:
+    @pytest.fixture
+    def git(self):
+        return GitRepo(url="./git_url", commit="commit_hash")
+
+    def test_git_repo(self, git: GitRepo):
+        assert git.container_mount == f"/git/{git.repo_name}"
+
+        git.mount_as = "/my_mount"
+        assert git.container_mount == git.mount_as
+
+    def test_uninstall_no_repo(self, installer: SlurmInstaller, git: GitRepo):
+        res = installer._uninstall_git_repo(git)
+        assert res.success
+        assert res.message == f"Repository {git.url} is not cloned."
+
+    def test_uninstall_no_installed_path(self, installer: SlurmInstaller, git: GitRepo):
+        git.installed_path = None
+        (installer.system.install_path / git.repo_name).mkdir(parents=True)
+        res = installer._uninstall_git_repo(git)
+        assert res.success
+        assert not git.installed_path
+        assert not (installer.system.install_path / git.repo_name).exists()
+
+    def test_uninstall_with_installed_path(self, installer: SlurmInstaller, git: GitRepo):
+        git.installed_path = installer.system.install_path / git.repo_name
+        git.installed_path.mkdir(parents=True)
+        res = installer._uninstall_git_repo(git)
+        assert res.success
+        assert not (installer.system.install_path / git.repo_name).exists()
+        assert not git.installed_path
+
+
+class TestInstallOneFile:
+    @pytest.fixture
+    def f(self) -> File:
+        return File(Path(__file__))
+
+    def test_no_dst(self, installer: SlurmInstaller, f: File):
+        res = installer.install_one(f)
+        assert res.success
+        assert f.installed_path == installer.system.install_path / f.src.name
+        assert f.installed_path.exists()
+        assert f.installed_path.read_bytes() == f.src.read_bytes()
+
+    def test_file_exists_but_overriden(self, installer: SlurmInstaller, f: File):
+        f.installed_path = installer.system.install_path / f.src.name
+        f.installed_path.touch()
+        res = installer.install_one(f)
+        assert res.success
+        assert f.src.read_bytes() == f.installed_path.read_bytes()
+
+
 def test_check_supported(slurm_system: SlurmSystem):
+    slurm_system.install_path.mkdir()
     installer = SlurmInstaller(slurm_system)
     installer._install_docker_image = lambda item: DockerImageCacheResult(True)
     installer._install_python_executable = lambda item: InstallStatusResult(True)
@@ -298,16 +348,16 @@ def test_check_supported(slurm_system: SlurmSystem):
     installer._is_python_executable_installed = lambda item: InstallStatusResult(True)
     installer.docker_image_cache_manager.check_docker_image_exists = Mock(return_value=DockerImageCacheResult(True))
 
-    git = GitRepo("git_url", "commit_hash")
-    items = [DockerImage("fake_url/img"), PythonExecutable(git)]
+    git = GitRepo(url="git_url", commit="commit_hash")
+    items = [DockerImage("fake_url/img"), PythonExecutable(git), File(Path(__file__))]
     for item in items:
         res = installer.install_one(item)
         assert res.success
 
-        res = installer.uninstall_one(item)
+        res = installer.is_installed_one(item)
         assert res.success
 
-        res = installer.is_installed_one(item)
+        res = installer.uninstall_one(item)
         assert res.success
 
     class MyInstallable(Installable):

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,9 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from abc import abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, final
 
 from cloudai import CommandGenStrategy, TestRun, TestScenario
 from cloudai.systems import SlurmSystem
@@ -50,6 +51,33 @@ class SlurmCommandGenStrategy(CommandGenStrategy):
             )
 
         self.docker_image_url = self.cmd_args.get("docker_image_url", "")
+
+    @abstractmethod
+    def _container_mounts(self, tr: TestRun) -> list[str]:
+        """Return CommandGenStrategy specific container mounts for the test run."""
+        ...
+
+    @final
+    def container_mounts(self, tr: TestRun) -> list[str]:
+        """
+        Return the container mounts for the test run.
+
+        Function returns CommandGenStrategy specific container mounts as well as default ones
+        that should always be used.
+        """
+        tdef = tr.test.test_definition
+
+        repo_mounts = []
+        for repo in tdef.git_repos:
+            path = repo.installed_path.absolute() if repo.installed_path else self.system.install_path / repo.repo_name
+            repo_mounts.append(f"{path}:{repo.container_mount}")
+
+        return [
+            f"{tr.output_path.absolute()}:/cloudai_run_results",
+            *tdef.extra_container_mounts,
+            *repo_mounts,
+            *self._container_mounts(tr),
+        ]
 
     def gen_exec_command(self, tr: TestRun) -> str:
         env_vars = self._override_env_vars(self.system.global_env_vars, tr.test.extra_env_vars)
@@ -192,6 +220,13 @@ class SlurmCommandGenStrategy(CommandGenStrategy):
 
         return "\n".join(post_test_commands)
 
+    def gen_nsys_command(self, tr: TestRun) -> list[str]:
+        nsys = tr.test.test_definition.nsys
+        if not nsys or not nsys.enable:
+            return []
+
+        return nsys.cmd_args
+
     def _gen_srun_command(
         self,
         slurm_args: Dict[str, Any],
@@ -200,15 +235,17 @@ class SlurmCommandGenStrategy(CommandGenStrategy):
         tr: TestRun,
     ) -> str:
         srun_command_parts = self.gen_srun_prefix(slurm_args, tr)
+        nsys_command_parts = self.gen_nsys_command(tr)
         test_command_parts = self.generate_test_command(env_vars, cmd_args, tr)
-        return " ".join(srun_command_parts + test_command_parts)
+        return " ".join(srun_command_parts + nsys_command_parts + test_command_parts)
 
     def gen_srun_prefix(self, slurm_args: Dict[str, Any], tr: TestRun) -> List[str]:
         srun_command_parts = ["srun", f"--mpi={self.system.mpi}"]
         if slurm_args.get("image_path"):
             srun_command_parts.append(f'--container-image={slurm_args["image_path"]}')
-            if slurm_args.get("container_mounts"):
-                srun_command_parts.append(f'--container-mounts={slurm_args["container_mounts"]}')
+            mounts = self.container_mounts(tr)
+            if mounts:
+                srun_command_parts.append(f'--container-mounts={",".join(mounts)}')
 
         if self.system.extra_srun_args:
             srun_command_parts.append(self.system.extra_srun_args)
@@ -237,6 +274,18 @@ class SlurmCommandGenStrategy(CommandGenStrategy):
 
         return batch_script_content
 
+    def _ranks_mapping_cmd(self, slurm_args: dict[str, Any], tr: TestRun) -> str:
+        return " ".join(
+            [
+                *self.gen_srun_prefix(slurm_args, tr),
+                f"--output={tr.output_path.absolute() / 'mapping-stdout.txt'}",
+                f"--error={tr.output_path.absolute() / 'mapping-stderr.txt'}",
+                "bash",
+                "-c",
+                r'"echo \$(date): \$(hostname):node \${SLURM_NODEID}:rank \${SLURM_PROCID}."',
+            ]
+        )
+
     def _write_sbatch_script(
         self, slurm_args: Dict[str, Any], env_vars: Dict[str, str], srun_command: str, tr: TestRun
     ) -> str:
@@ -260,8 +309,11 @@ class SlurmCommandGenStrategy(CommandGenStrategy):
 
         self._append_sbatch_directives(batch_script_content, slurm_args, tr.output_path)
 
-        env_vars_str = self._format_env_vars(env_vars)
-        batch_script_content.extend([env_vars_str, "", srun_command])
+        batch_script_content.extend([self._format_env_vars(env_vars)])
+
+        batch_script_content.extend([self._ranks_mapping_cmd(slurm_args, tr), ""])
+
+        batch_script_content.append(srun_command)
 
         batch_script_path = tr.output_path / "cloudai_sbatch_script.sh"
         with batch_script_path.open("w") as batch_file:
@@ -300,6 +352,9 @@ class SlurmCommandGenStrategy(CommandGenStrategy):
             batch_script_content.append(f"#SBATCH --ntasks-per-node={self.system.ntasks_per_node}")
         if "time_limit" in args:
             batch_script_content.append(f"#SBATCH --time={args['time_limit']}")
+
+        for arg in self.system.extra_sbatch_args:
+            batch_script_content.append(f"#SBATCH {arg}")
 
         batch_script_content.append(
             "\nexport SLURM_JOB_MASTER_NODE=$(scontrol show hostname $SLURM_JOB_NODELIST | head -n 1)"

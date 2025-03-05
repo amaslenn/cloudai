@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -55,6 +55,8 @@ def slurm_system(tmp_path: Path) -> SlurmSystem:
             ),
         ],
     )
+    system.scheduler = "slurm"
+    system.monitor_interval = 10
     return system
 
 
