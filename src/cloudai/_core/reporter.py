@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 
 import jinja2
+import nbformat as nbf
 
 from .system import System
 from .test_scenario import TestRun, TestScenario
@@ -35,6 +36,7 @@ class Reporter:
         self.system = system
         self.test_scenario = test_scenario
         self.results_root = results_root
+        self.template_dir = Path(__file__).parent.parent / "util"
 
     def generate(self) -> None:
         """
@@ -47,6 +49,7 @@ class Reporter:
             test_scenario (TestScenario): The scenario containing tests.
         """
         self.generate_scenario_report()
+        self.generate_scenario_notebook()
 
         for tr in self.test_scenario.test_runs:
             test_output_dir = self.results_root / tr.name
@@ -57,10 +60,34 @@ class Reporter:
             self.generate_per_case_reports(test_output_dir, tr)
 
     def generate_scenario_report(self) -> None:
-        template = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(Path(__file__).parent.parent / "util")
-        ).get_template("general-report.jinja2")
+        template = jinja2.Environment(loader=jinja2.FileSystemLoader(self.template_dir)).get_template(
+            "general-report.jinja2"
+        )
 
+        results = self._collect_test_results()
+        report = template.render(test_scenario=self.test_scenario, tr_results=results)
+        report_path = self.results_root / f"{self.test_scenario.name}.html"
+        with report_path.open("w") as f:
+            f.write(report)
+
+        logging.info(f"Generated scenario report at {report_path}")
+
+    def generate_scenario_notebook(self) -> None:
+        template = jinja2.Environment(loader=jinja2.FileSystemLoader(self.template_dir)).get_template(
+            "general-report.ipynb.jinja2"
+        )
+
+        results = self._collect_test_results()
+        notebook_content = template.render(test_scenario=self.test_scenario, tr_results=results)
+
+        # Parse the rendered template as JSON and create a notebook
+        notebook = nbf.reads(notebook_content, as_version=4)
+        notebook_path = self.results_root / f"{self.test_scenario.name}.ipynb"
+        nbf.write(notebook, notebook_path)
+
+        logging.info(f"Generated scenario notebook at {notebook_path}")
+
+    def _collect_test_results(self) -> dict:
         results = {}
         for tr in self.test_scenario.test_runs:
             for iter in range(tr.iterations):
@@ -69,13 +96,7 @@ class Reporter:
                     results.setdefault(
                         tr.name + f"{iter}", {"logs_path": f"./{run_dir.relative_to(self.results_root)}"}
                     )
-
-        report = template.render(test_scenario=self.test_scenario, tr_results=results)
-        report_path = self.results_root / f"{self.test_scenario.name}.html"
-        with report_path.open("w") as f:
-            f.write(report)
-
-        logging.info(f"Generated scenario report at {report_path}")
+        return results
 
     def generate_per_case_reports(self, directory_path: Path, tr: TestRun) -> None:
         """

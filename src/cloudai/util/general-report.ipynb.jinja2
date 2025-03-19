@@ -1,0 +1,31 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# {{ test_scenario.name }}\n",
+    "\n",
+    "## Test Results Summary"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "| Test | Status |\n",
+    "|------|--------|\n",
+    "{% for tr in test_scenario.test_runs %}{% for iter in range(tr.iterations) %}| {{ tr.name }}.{{ iter }} | {% if tr.name + iter|string in tr_results %}[logs]({{ tr_results[tr.name + iter|string]['logs_path'] }}){% else %}no logs{% endif %} |\n{% endfor %}{% endfor %}"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
