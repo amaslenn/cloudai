@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,11 +15,13 @@
 # limitations under the License.
 
 import re
+from pathlib import Path
 from typing import Dict, List
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
+from cloudai import BaseJob
 from cloudai.systems import SlurmSystem
 from cloudai.systems.slurm import SlurmNode, SlurmNodeState
 from cloudai.systems.slurm.slurm_system import parse_node_list
@@ -91,27 +93,28 @@ def test_parse_sinfo_output(slurm_system: SlurmSystem) -> None:
         assert node.state == SlurmNodeState.IDLE
 
 
-@patch("cloudai.systems.SlurmSystem.get_squeue")
-@patch("cloudai.systems.SlurmSystem.get_sinfo")
-def test_update_node_states_with_mocked_outputs(mock_get_sinfo, mock_get_squeue, slurm_system: SlurmSystem):
-    mock_get_squeue.return_value = "node-033|user1"
-    mock_get_sinfo.return_value = "PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\n" "main up infinite 1 idle node-033"
+@patch("cloudai.systems.SlurmSystem.fetch_command_output")
+def test_update_with_mocked_outputs(mock_fetch_command_output: Mock, slurm_system: SlurmSystem):
+    mock_fetch_command_output.side_effect = [
+        ("node-033|user1", ""),
+        ("PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\n" "main up infinite 1 idle node-033", ""),
+    ]
 
     parts_by_name = {part.name: part for part in slurm_system.partitions}
 
-    slurm_system.update_node_states()
+    slurm_system.update()
     assert "node-033" in {node.name for node in parts_by_name["main"].slurm_nodes}
     for node in parts_by_name["main"].slurm_nodes:
         if node.name == "node-033":
             assert node.state == SlurmNodeState.IDLE
             assert node.user == "user1"
 
-    mock_get_squeue.return_value = "node01|root"
-    mock_get_sinfo.return_value = (
-        "PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\n" "backup up infinite 1 allocated node01"
-    )
+    mock_fetch_command_output.side_effect = [
+        ("node01|root", ""),
+        ("PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\n" "backup up infinite 1 allocated node01", ""),
+    ]
 
-    slurm_system.update_node_states()
+    slurm_system.update()
     for node in parts_by_name["backup"].slurm_nodes:
         if node.name == "node01":
             assert node.state == SlurmNodeState.ALLOCATED
@@ -229,3 +232,159 @@ def test_allocate_nodes_exceeding_limit(
         ),
     ):
         slurm_system.allocate_nodes(grouped_nodes, num_nodes, group_name)
+
+
+@pytest.mark.parametrize(
+    "stdout,stderr,is_completed",
+    [
+        ("COMPLETED", "", True),
+        ("FAILED", "", True),
+        ("CANCELLED", "", True),
+        ("TIMEOUT", "", True),
+        ("RUNNING", "", False),
+        ("PENDING", "", False),
+        ("COMPLETED RUNNING", "", False),
+        ("RUNNING COMPLETED", "", False),
+        ("COMPLETED COMPLETED", "", True),
+        ("", "error", False),
+    ],
+)
+def test_is_job_completed(stdout: str, stderr: str, is_completed: bool, slurm_system: SlurmSystem):
+    job = BaseJob(test_run=Mock(), id=1)
+    pp = Mock()
+    pp.communicate = Mock(return_value=(stdout, stderr))
+    slurm_system.cmd_shell.execute = Mock(return_value=pp)
+
+    if stderr:
+        with pytest.raises(RuntimeError):
+            slurm_system.is_job_completed(job)
+    else:
+        assert slurm_system.is_job_completed(job) is is_completed
+
+
+@pytest.mark.parametrize(
+    "stdout,stderr,is_running",
+    [
+        ("RUNNING", "", True),
+        ("PENDING", "", False),
+        ("COMPLETED", "", False),
+        ("FAILED", "", False),
+        ("CANCELLED", "", False),
+        ("TIMEOUT", "", False),
+        ("", "error", False),
+        ("   RUNNING \n   RUNNING \n   RUNNING \n COMPLETED \n    FAILED \n   RUNNING \n", "", True),
+    ],
+)
+def test_is_job_running(stdout: str, stderr: str, is_running: bool, slurm_system: SlurmSystem):
+    job = BaseJob(test_run=Mock(), id=1)
+    pp = Mock()
+    pp.communicate = Mock(return_value=(stdout, stderr))
+    slurm_system.cmd_shell.execute = Mock(return_value=pp)
+
+    if stderr:
+        with pytest.raises(RuntimeError):
+            slurm_system.is_job_running(job)
+    else:
+        assert slurm_system.is_job_running(job) is is_running
+
+
+@pytest.mark.parametrize(
+    "stdout,stderr, expected",
+    [
+        ("", "error", None),
+        (  # a real stdout example
+            """coreai_dlalgo_llm-TestTemplate.20250414_004818,COMPLETED,144,
+batch,COMPLETED,144,
+extern,COMPLETED,144,
+bash,COMPLETED,23,
+bash,COMPLETED,29,
+all_reduce_perf_mpi,COMPLETED,46,""",
+            "",
+            ("coreai_dlalgo_llm-TestTemplate.20250414_004818", "COMPLETED", "144"),
+        ),
+    ],
+)
+def test_get_job_status(slurm_system: SlurmSystem, stdout: str, stderr: str, expected: tuple):
+    job = BaseJob(test_run=Mock(), id=1)
+    pp = Mock()
+    pp.communicate = Mock(return_value=(stdout, stderr))
+    slurm_system.cmd_shell.execute = Mock(return_value=pp)
+
+    if stderr:
+        with pytest.raises(RuntimeError):
+            slurm_system.get_job_status(job)
+    else:
+        assert slurm_system.get_job_status(job) == expected
+
+
+def test_is_job_running_with_retries(slurm_system: SlurmSystem):
+    job = BaseJob(test_run=Mock(), id=1)
+    command = f"sacct -j {job.id} --format=State --noheader"
+
+    pp = Mock()
+    pp.communicate = Mock(side_effect=[("", "Socket timed out"), ("", "slurm_load_jobs error"), ("RUNNING", "")])
+    slurm_system.cmd_shell.execute = Mock(return_value=pp)
+
+    assert slurm_system.is_job_running(job, retry_threshold=3) is True
+    assert slurm_system.cmd_shell.execute.call_count == 3
+    slurm_system.cmd_shell.execute.assert_called_with(command)
+
+
+def test_is_job_running_exceeds_retries(slurm_system: SlurmSystem):
+    job = BaseJob(test_run=Mock(), id=1)
+    command = f"sacct -j {job.id} --format=State --noheader"
+
+    # test known error in srderr
+    pp = Mock()
+    pp.communicate = Mock(return_value=("", "Socket timed out"))
+    slurm_system.cmd_shell.execute = Mock(return_value=pp)
+    with pytest.raises(RuntimeError):
+        slurm_system.is_job_running(job)
+    assert slurm_system.cmd_shell.execute.call_count == 3
+    slurm_system.cmd_shell.execute.assert_called_with(command)
+
+    # test unknown error in stderr
+    pp.communicate = Mock(return_value=("", "FAILED"))
+    slurm_system.cmd_shell.execute = Mock(return_value=pp)
+    with pytest.raises(RuntimeError):
+        slurm_system.is_job_running(job, retry_threshold=3)
+    assert slurm_system.cmd_shell.execute.call_count == 1
+
+
+def test_model_dump(slurm_system: SlurmSystem):
+    sys_dict = slurm_system.model_dump()
+    assert type(sys_dict["install_path"]) is str
+    assert sys_dict["install_path"] == str(slurm_system.install_path)
+    assert type(sys_dict["output_path"]) is str
+    assert sys_dict["output_path"] == str(slurm_system.output_path)
+    assert "cmd_shell" not in sys_dict
+    recreated = SlurmSystem.model_validate(sys_dict)
+    assert recreated.model_dump() == sys_dict
+
+
+def test_default_partition_is_required():
+    with pytest.raises(ValueError):
+        SlurmSystem(name="", install_path=Path.cwd(), output_path=Path.cwd(), partitions=[])  # type: ignore
+
+
+class TestParseNodes:
+    def test_single_node(self, slurm_system: SlurmSystem):
+        nodes = slurm_system.parse_nodes(["node01"])
+        assert nodes == ["node01"]
+
+    def test_two_nodes(self, slurm_system: SlurmSystem):
+        nodes = slurm_system.parse_nodes(["node01", "node02"])
+        assert nodes == ["node01", "node02"]
+
+    def test_range(self, slurm_system: SlurmSystem):
+        nodes = slurm_system.parse_nodes(["node0[1-3]"])
+        assert nodes == ["node01", "node02", "node03"]
+
+    def test_with_commas(self, slurm_system: SlurmSystem):
+        nodes = slurm_system.parse_nodes(["node01,node02,node03"])
+        assert nodes == ["node01", "node02", "node03"]
+
+    @pytest.mark.parametrize("spec", ["part:", "part:group", "unknown:grp:1", "main:unknown:1"])
+    def test_colon_invalid_syntax(self, slurm_system: SlurmSystem, spec: str):
+        with pytest.raises(ValueError):
+            slurm_system.parse_nodes([spec])

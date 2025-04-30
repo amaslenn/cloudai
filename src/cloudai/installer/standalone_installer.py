@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,7 +24,7 @@ class StandaloneInstaller(BaseInstaller):
     Handles the installation of benchmarks or test templates for standalone systems.
     """
 
-    PREREQUISITES = ["ps", "kill"]
+    PREREQUISITES = ("ps", "kill")
 
     def _check_prerequisites(self) -> InstallStatusResult:
         """Check for the presence of required binaries, returning an error status if any are missing."""
@@ -47,4 +47,7 @@ class StandaloneInstaller(BaseInstaller):
         return InstallStatusResult(False, f"Unsupported item type: {type(item)}")
 
     def is_installed_one(self, item: Installable) -> InstallStatusResult:
-        return InstallStatusResult(True, f"Unsupported item type: {type(item)}")
+        return InstallStatusResult(False, f"Unsupported item type: {type(item)}")
+
+    def mark_as_installed_one(self, item: Installable) -> InstallStatusResult:
+        return InstallStatusResult(False, f"Unsupported item type: {type(item)}")

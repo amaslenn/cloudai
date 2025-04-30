@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,14 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, List, Tuple, Type, Union
+import copy
+from typing import ClassVar, List, Set, Tuple, Type, Union
 
 from .base_installer import BaseInstaller
 from .base_runner import BaseRunner, NewBaseRunner
+from .configurator.base_agent import BaseAgent
 from .grading_strategy import GradingStrategy
 from .job_id_retrieval_strategy import JobIdRetrievalStrategy
 from .job_status_retrieval_strategy import JobStatusRetrievalStrategy
 from .report_generation_strategy import ReportGenerationStrategy
+from .reporter import Reporter
 from .system import System
 from .test import TestDefinition
 from .test_template_strategy import TestTemplateStrategy
@@ -41,34 +44,37 @@ class Singleton(type):
 class Registry(metaclass=Singleton):
     """Registry for implementations mappings."""
 
-    runners_map: Dict[str, Union[Type[BaseRunner], Type[NewBaseRunner]]] = {}
-    strategies_map: Dict[
-        Tuple[
+    runners_map: ClassVar[dict[str, Type[BaseRunner]]] = {}
+    strategies_map: ClassVar[
+        dict[
+            Tuple[
+                Type[
+                    Union[
+                        TestTemplateStrategy,
+                        JobIdRetrievalStrategy,
+                        JobStatusRetrievalStrategy,
+                        GradingStrategy,
+                    ]
+                ],
+                Type[System],
+                Type[TestDefinition],
+            ],
             Type[
                 Union[
                     TestTemplateStrategy,
-                    ReportGenerationStrategy,
                     JobIdRetrievalStrategy,
                     JobStatusRetrievalStrategy,
                     GradingStrategy,
                 ]
             ],
-            Type[System],
-            Type[TestDefinition],
-        ],
-        Type[
-            Union[
-                TestTemplateStrategy,
-                ReportGenerationStrategy,
-                JobIdRetrievalStrategy,
-                JobStatusRetrievalStrategy,
-                GradingStrategy,
-            ]
-        ],
+        ]
     ] = {}
-    installers_map: Dict[str, Type[BaseInstaller]] = {}
-    systems_map: Dict[str, Type[System]] = {}
-    test_definitions_map: Dict[str, Type[TestDefinition]] = {}
+    installers_map: ClassVar[dict[str, Type[BaseInstaller]]] = {}
+    systems_map: ClassVar[dict[str, Type[System]]] = {}
+    test_definitions_map: ClassVar[dict[str, Type[TestDefinition]]] = {}
+    agents_map: ClassVar[dict[str, Type[BaseAgent]]] = {}
+    reports_map: ClassVar[dict[Type[TestDefinition], Set[Type[ReportGenerationStrategy]]]] = {}
+    scenario_reports: ClassVar[Set[Type[Reporter]]] = set()
 
     def add_runner(self, name: str, value: Union[Type[BaseRunner], Type[NewBaseRunner]]) -> None:
         """
@@ -105,7 +111,6 @@ class Registry(metaclass=Singleton):
         strategy_interface: Type[
             Union[
                 TestTemplateStrategy,
-                ReportGenerationStrategy,
                 JobIdRetrievalStrategy,
                 JobStatusRetrievalStrategy,
                 GradingStrategy,
@@ -116,7 +121,6 @@ class Registry(metaclass=Singleton):
         strategy: Type[
             Union[
                 TestTemplateStrategy,
-                ReportGenerationStrategy,
                 JobIdRetrievalStrategy,
                 JobStatusRetrievalStrategy,
                 GradingStrategy,
@@ -136,7 +140,6 @@ class Registry(metaclass=Singleton):
             Type[
                 Union[
                     TestTemplateStrategy,
-                    ReportGenerationStrategy,
                     JobIdRetrievalStrategy,
                     JobStatusRetrievalStrategy,
                     GradingStrategy,
@@ -148,7 +151,6 @@ class Registry(metaclass=Singleton):
         value: Type[
             Union[
                 TestTemplateStrategy,
-                ReportGenerationStrategy,
                 JobIdRetrievalStrategy,
                 JobStatusRetrievalStrategy,
                 GradingStrategy,
@@ -157,14 +159,13 @@ class Registry(metaclass=Singleton):
     ) -> None:
         if not (
             issubclass(key[0], TestTemplateStrategy)
-            or issubclass(key[0], ReportGenerationStrategy)
             or issubclass(key[0], JobIdRetrievalStrategy)
             or issubclass(key[0], JobStatusRetrievalStrategy)
             or issubclass(key[0], GradingStrategy)
         ):
             raise ValueError(
                 "Invalid strategy interface type, should be subclass of 'TestTemplateStrategy' or "
-                "'ReportGenerationStrategy' or 'JobIdRetrievalStrategy' or 'JobStatusRetrievalStrategy' or "
+                "'JobIdRetrievalStrategy' or 'JobStatusRetrievalStrategy' or "
                 "'GradingStrategy'."
             )
         if not issubclass(key[1], System):
@@ -174,7 +175,6 @@ class Registry(metaclass=Singleton):
 
         if not (
             issubclass(value, TestTemplateStrategy)
-            or issubclass(value, ReportGenerationStrategy)
             or issubclass(value, JobIdRetrievalStrategy)
             or issubclass(value, JobStatusRetrievalStrategy)
             or issubclass(value, GradingStrategy)
@@ -273,3 +273,57 @@ class Registry(metaclass=Singleton):
                 f"Invalid test definition implementation for '{name}', should be subclass of 'TestDefinition'."
             )
         self.test_definitions_map[name] = value
+
+    def add_agent(self, name: str, value: Type[BaseAgent]) -> None:
+        """
+        Add a new agent implementation mapping.
+
+        Args:
+            name (str): The name of the agent.
+            value (Type[BaseAgent]): The agent implementation.
+
+        Raises:
+            ValueError: If the agent implementation already exists.
+        """
+        if name in self.agents_map:
+            raise ValueError(f"Duplicating implementation for '{name}', use 'update()' for replacement.")
+        self.update_agent(name, value)
+
+    def update_agent(self, name: str, value: Type[BaseAgent]) -> None:
+        """
+        Create or replace agent implementation mapping.
+
+        Args:
+            name (str): The name of the agent.
+            value (Type[BaseAgent]): The agent implementation.
+
+        Raises:
+            ValueError: If value is not a subclass of BaseAgent.
+        """
+        if not issubclass(value, BaseAgent):
+            raise ValueError(f"Invalid agent implementation for '{name}', should be subclass of 'BaseAgent'.")
+        self.agents_map[name] = value
+
+    def add_report(self, tdef_type: Type[TestDefinition], value: Type[ReportGenerationStrategy]) -> None:
+        existing_reports = self.reports_map.get(tdef_type, set())
+        existing_reports.add(value)
+        self.update_report(tdef_type, existing_reports)
+
+    def update_report(self, tdef_type: Type[TestDefinition], reports: Set[Type[ReportGenerationStrategy]]) -> None:
+        if not any(issubclass(report, ReportGenerationStrategy) for report in reports):
+            raise ValueError(
+                f"Invalid report generation strategy implementation for '{tdef_type}', "
+                "should be subclass of 'ReportGenerationStrategy'."
+            )
+        self.reports_map[tdef_type] = reports
+
+    def add_scenario_report(self, value: Type[Reporter]) -> None:
+        existing_reports = copy.copy(self.scenario_reports)
+        existing_reports.add(value)
+        self.update_scenario_report(existing_reports)
+
+    def update_scenario_report(self, reports: Set[Type[Reporter]]) -> None:
+        if not any(issubclass(report, Reporter) for report in reports):
+            raise ValueError("Invalid scenario report implementation, should be subclass of 'Reporter'.")
+        self.scenario_reports.clear()
+        self.scenario_reports.update(reports)

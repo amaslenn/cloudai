@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -56,17 +56,17 @@ def slurm_system(tmp_path: Path):
         install_path=tmp_path,
         output_path=tmp_path,
         default_partition="main",
-        partitions=[SlurmPartition(name="main", nodes=["nodeA001", "nodeB001"])],
+        partitions=[SlurmPartition(name="main")],
     )
     return system
 
 
 @pytest.fixture
-def slurm_runner(slurm_system) -> SlurmRunner:
+def slurm_runner(slurm_system, tmp_path: Path) -> SlurmRunner:
     test_scenario = TestScenario(
         name="Test Scenario", test_runs=[TestRun("tr-name", MockTest(section_name="Mock Test"), 1, [])]
     )
-    runner = SlurmRunner(mode="run", system=slurm_system, test_scenario=test_scenario)
+    runner = SlurmRunner(mode="run", system=slurm_system, test_scenario=test_scenario, output_path=tmp_path)
     runner.cmd_shell = MockCommandShell()
     return runner
 

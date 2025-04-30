@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Type, Union, cast
 
 import toml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from .command_gen_strategy import CommandGenStrategy
 from .exceptions import TestConfigParsingError, format_validation_error
@@ -28,7 +28,6 @@ from .job_id_retrieval_strategy import JobIdRetrievalStrategy
 from .job_status_retrieval_strategy import JobStatusRetrievalStrategy
 from .json_gen_strategy import JsonGenStrategy
 from .registry import Registry
-from .report_generation_strategy import ReportGenerationStrategy
 from .system import System
 from .test import Test, TestDefinition
 from .test_template import TestTemplate
@@ -76,7 +75,18 @@ class TestParser:
                 objects.append(parsed_object)
         return objects
 
-    def load_test_definition(self, data: dict) -> TestDefinition:
+    @staticmethod
+    def model_extras(m: BaseModel, prefix="cmd_args") -> set[str]:
+        if m.model_extra is None:
+            return set()
+
+        extras = set()
+        for field in m.model_fields:
+            if isinstance(m.__dict__[field], BaseModel):
+                extras |= TestParser.model_extras(m.__dict__[field], prefix=f"{prefix}.{field}")
+        return extras | set([f"{prefix}.{k}" for k in m.model_extra])
+
+    def load_test_definition(self, data: dict, strict: bool = False) -> TestDefinition:
         test_template_name = data.get("test_template_name", "")
         registry = Registry()
         if test_template_name not in registry.test_definitions_map:
@@ -92,6 +102,12 @@ class TestParser:
                 logging.error(err_msg)
             raise TestConfigParsingError("Failed to parse test spec") from e
 
+        if strict and self.model_extras(test_def.cmd_args):
+            logging.error(f"Strict check failed for test spec: '{self.current_file}'")
+            for field in self.model_extras(test_def.cmd_args):
+                logging.error(f"Unexpected field '{field}' in test spec.")
+            raise TestConfigParsingError("Failed to parse test spec using strict mode")
+
         return test_def
 
     def _fetch_strategy(  # noqa: D417
@@ -99,7 +115,6 @@ class TestParser:
         strategy_interface: Type[
             Union[
                 TestTemplateStrategy,
-                ReportGenerationStrategy,
                 JobIdRetrievalStrategy,
                 JobStatusRetrievalStrategy,
                 GradingStrategy,
@@ -111,7 +126,6 @@ class TestParser:
     ) -> Optional[
         Union[
             TestTemplateStrategy,
-            ReportGenerationStrategy,
             JobIdRetrievalStrategy,
             JobStatusRetrievalStrategy,
             GradingStrategy,
@@ -121,7 +135,7 @@ class TestParser:
         Fetch a strategy from the registry based on system and template.
 
         Args:
-            strategy_interface (Type[Union[TestTemplateStrategy, ReportGenerationStrategy,
+            strategy_interface (Type[Union[TestTemplateStrategy,
                 JobIdRetrievalStrategy, JobStatusRetrievalStrategy]]):
                 The strategy interface to fetch.
             system_type (Type[System]): The system type.
@@ -177,10 +191,6 @@ class TestParser:
             JobStatusRetrievalStrategy,
             self._fetch_strategy(JobStatusRetrievalStrategy, type(obj.system), type(tdef), cmd_args),
         )
-        obj.report_generation_strategy = cast(
-            ReportGenerationStrategy,
-            self._fetch_strategy(ReportGenerationStrategy, type(obj.system), type(tdef), cmd_args),
-        )
         obj.grading_strategy = cast(
             GradingStrategy, self._fetch_strategy(GradingStrategy, type(obj.system), type(tdef), cmd_args)
         )
@@ -202,15 +212,3 @@ class TestParser:
         test_template = self._get_test_template(test_template_name, test_def)
 
         return Test(test_definition=test_def, test_template=test_template)
-
-    def _parse_cmd_args(self, cmd_args_str: str) -> List[str]:
-        """
-        Parse a string of command-line arguments into a list.
-
-        Args:
-            cmd_args_str (str): Command-line arguments as a single string.
-
-        Returns:
-            List[str]: List of command-line arguments.
-        """
-        return cmd_args_str.split() if cmd_args_str else []

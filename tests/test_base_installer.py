@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,13 +15,16 @@
 # limitations under the License.
 
 from concurrent.futures import Future
+from pathlib import Path
+from typing import Generator
 from unittest.mock import Mock, patch
 
 import pytest
 
 from cloudai import BaseInstaller, InstallStatusResult
-from cloudai.installer.installables import DockerImage, GitRepo, Installable
+from cloudai._core.installables import DockerImage, GitRepo, Installable
 from cloudai.systems import SlurmSystem
+from cloudai.util import prepare_output_dir
 
 
 def create_real_future(result):
@@ -38,6 +41,9 @@ class MyInstaller(BaseInstaller):
         return InstallStatusResult(success=True)
 
     def is_installed_one(self, item: Installable) -> InstallStatusResult:
+        return InstallStatusResult(success=True)
+
+    def mark_as_installed_one(self, item: Installable) -> InstallStatusResult:
         return InstallStatusResult(success=True)
 
 
@@ -97,14 +103,18 @@ class TestBaseInstaller:
 
         installer.install([docker_image, docker_image])
 
-        assert mock_executor.return_value.__enter__.return_value.submit.call_count == 1
+        assert mock_executor.return_value.__enter__.return_value.submit.call_count == 1 + len(
+            installer.system.system_installables()
+        )
 
     def test_uninstalls_only_uniq(self, mock_executor: Mock, installer: MyInstaller, docker_image: DockerImage):
         mock_executor.return_value.__enter__.return_value.submit.return_value = create_real_future(0)
 
         installer.uninstall([docker_image, docker_image])
 
-        assert mock_executor.return_value.__enter__.return_value.submit.call_count == 1
+        assert mock_executor.return_value.__enter__.return_value.submit.call_count == 1 + len(
+            installer.system.system_installables()
+        )
 
 
 @pytest.mark.parametrize(
@@ -128,4 +138,56 @@ def test_docker_cache_filename(url: str, expected: str):
     ],
 )
 def test_git_repo_name(url: str, expected: str):
-    assert GitRepo(url, "commit").repo_name == expected
+    assert GitRepo(url=url, commit="commit").repo_name == expected
+
+
+@pytest.fixture
+def no_access_dir(tmp_path: Path) -> Generator[Path, None, None]:
+    d = tmp_path / "no-access-dir"
+    d.mkdir(exist_ok=True)
+    d.chmod(0o000)
+    yield d
+    d.chmod(0o777)  # restore access so it can be deleted
+
+
+class TestPrepareOutputDir:
+    def test_already_exists(self, tmp_path: Path):
+        assert prepare_output_dir(tmp_path) == tmp_path
+
+    def test_not_exists(self, tmp_path: Path):
+        assert prepare_output_dir(tmp_path / "new-dir") == tmp_path / "new-dir"
+
+    def test_exists_but_file(self, tmp_path: Path, caplog: pytest.LogCaptureFixture):
+        p = tmp_path / "file"
+        p.touch()
+        assert prepare_output_dir(p) is None
+        assert f"Output path '{p.absolute()}' exists but is not a directory." in caplog.text
+
+    def test_not_writable(self, no_access_dir: Path, caplog: pytest.LogCaptureFixture):
+        assert prepare_output_dir(no_access_dir) is None
+        assert f"Output path '{no_access_dir.absolute()}' exists but is not writable." in caplog.text
+
+    def test_parent_wo_access(self, no_access_dir: Path, caplog: pytest.LogCaptureFixture):
+        subdir = no_access_dir / "subdir"
+        assert prepare_output_dir(subdir) is None
+        assert f"Output path '{subdir.absolute()}' is not accessible:" in caplog.text
+
+
+def test_system_installables_are_used(slurm_system: SlurmSystem):
+    installer = MyInstaller(slurm_system)
+    installer.install_one = Mock(return_value=InstallStatusResult(True))
+    installer.uninstall_one = Mock(return_value=InstallStatusResult(True))
+    installer.is_installed_one = Mock(return_value=InstallStatusResult(True))
+    installer.mark_as_installed_one = Mock(return_value=InstallStatusResult(True))
+
+    installer.install([])
+    assert installer.install_one.call_count == len(slurm_system.system_installables())
+
+    installer.uninstall([])
+    assert installer.uninstall_one.call_count == len(slurm_system.system_installables())
+
+    installer.is_installed([])
+    assert installer.is_installed_one.call_count == len(slurm_system.system_installables())
+
+    installer.mark_as_installed([])
+    assert installer.mark_as_installed_one.call_count == len(slurm_system.system_installables())

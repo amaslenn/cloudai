@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,15 +15,16 @@
 # limitations under the License.
 
 import logging
-import os
 import shutil
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable, final
 
+from cloudai.util import prepare_output_dir
+
 from .install_status_result import InstallStatusResult
+from .installables import Installable
 from .system import System
-from .test import Installable
 
 
 class BaseInstaller(ABC):
@@ -72,6 +73,9 @@ class BaseInstaller(ABC):
         logging.debug("Checking for common prerequisites.")
         return InstallStatusResult(True)
 
+    def all_items(self, items: Iterable[Installable]) -> set[Installable]:
+        return set(list(items) + self.system.system_installables())
+
     @final
     def is_installed(self, items: Iterable[Installable]) -> InstallStatusResult:
         """
@@ -85,11 +89,14 @@ class BaseInstaller(ABC):
         Returns:
             InstallStatusResult: Result containing the installation status and error message if not installed.
         """
+        if not prepare_output_dir(self.system.install_path):
+            return InstallStatusResult(False, f"Error preparing install dir '{self.system.install_path.absolute()}'")
+
         not_installed = {}
-        for item in items:
-            logging.debug(f"Installation check for {item}")
+        for item in self.all_items(items):
+            logging.debug(f"Installation check for {item!r}")
             result = self.is_installed_one(item)
-            logging.debug(f"Installation check for {item}: {result.success}, {result.message}")
+            logging.debug(f"Installation check for {item!r}: {result.success}, {result.message}")
             if not result.success:
                 not_installed[item] = result.message
 
@@ -114,32 +121,22 @@ class BaseInstaller(ABC):
         if not prerequisites_result.success:
             return prerequisites_result
 
-        try:
-            self.system.install_path.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            return InstallStatusResult(
-                False, f"Failed to create installation directory at {self.system.install_path}: {e}"
-            )
-
-        if not self.system.install_path.is_dir() or not os.access(self.system.install_path, os.W_OK):
-            return InstallStatusResult(False, f"The installation path {self.system.install_path} is not writable.")
+        if not prepare_output_dir(self.system.install_path):
+            return InstallStatusResult(False, f"Error preparing install dir '{self.system.install_path.absolute()}'")
 
         logging.debug(f"Going to install {len(set(items))} uniq item(s) (total is {len(list(items))})")
         logging.info(f"Going to install {len(set(items))} item(s)")
 
         install_results = {}
         with ThreadPoolExecutor() as executor:
-            futures = {executor.submit(self.install_one, item): item for item in set(items)}
+            futures = {executor.submit(self.install_one, item): item for item in self.all_items(items)}
             total, done = len(futures), 0
             for future in as_completed(futures):
                 item = futures[future]
                 try:
                     result = future.result()
                     done += 1
-                    msg = (
-                        f"{done}/{total} Installation for {item} finished with status: "
-                        f"{result.message if result.message else 'OK'}"
-                    )
+                    msg = f"{done}/{total} Installation of {item!r}: {result.message if result.message else 'OK'}"
                     if result.success:
                         install_results[item] = "Success"
                         logging.info(msg)
@@ -148,7 +145,7 @@ class BaseInstaller(ABC):
                         logging.error(msg)
                 except Exception as e:
                     done += 1
-                    logging.error(f"{done}/{total} Installation failed for {item}: {e}")
+                    logging.error(f"{done}/{total} Installation failed for {item!r}: {e}")
                     install_results[item] = str(e)
 
         all_success = all(result == "Success" for result in install_results.values())
@@ -173,7 +170,7 @@ class BaseInstaller(ABC):
         logging.info(f"Going to uninstall {len(set(items))} items.")
         uninstall_results = {}
         with ThreadPoolExecutor() as executor:
-            futures = {executor.submit(self.uninstall_one, item): item for item in set(items)}
+            futures = {executor.submit(self.uninstall_one, item): item for item in self.all_items(items)}
             for future in as_completed(futures):
                 item = futures[future]
                 try:
@@ -183,7 +180,7 @@ class BaseInstaller(ABC):
                     else:
                         uninstall_results[item] = result.message
                 except Exception as e:
-                    logging.error(f"Uninstallation failed for {item}: {e}")
+                    logging.error(f"Uninstallation failed for {item!r}: {e}")
                     uninstall_results[item] = str(e)
 
         all_success = all(result == "Success" for result in uninstall_results.values())
@@ -193,6 +190,23 @@ class BaseInstaller(ABC):
         nfailed = len([result for result in uninstall_results.values() if result != "Success"])
         return InstallStatusResult(False, f"{nfailed} item(s) failed to uninstall.", uninstall_results)
 
+    @final
+    def mark_as_installed(self, items: Iterable[Installable]) -> InstallStatusResult:
+        """
+        Mark the installable items as installed.
+
+        Args:
+            items (Iterable[Installable]): Items to mark as installed.
+
+        Returns:
+            InstallStatusResult: Result containing the status and error message if any.
+        """
+        install_results = {}
+        for item in self.all_items(items):
+            self.mark_as_installed_one(item)
+
+        return InstallStatusResult(True, "All items marked as installed successfully.", install_results)
+
     @abstractmethod
     def install_one(self, item: Installable) -> InstallStatusResult: ...
 
@@ -201,3 +215,6 @@ class BaseInstaller(ABC):
 
     @abstractmethod
     def is_installed_one(self, item: Installable) -> InstallStatusResult: ...
+
+    @abstractmethod
+    def mark_as_installed_one(self, item: Installable) -> InstallStatusResult: ...

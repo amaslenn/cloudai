@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,4 +30,4 @@ test_template_name = "NcclTest"
 "--stepfactor" = "2"
 
 [extra_env_vars]
-"NCCL_TEST_SPLIT_MASK" = "0x7"
+"NCCL_TESTS_SPLIT_MASK" = "0x7"

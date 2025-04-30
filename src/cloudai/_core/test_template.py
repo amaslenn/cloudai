@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,7 +23,6 @@ from .job_id_retrieval_strategy import JobIdRetrievalStrategy
 from .job_status_result import JobStatusResult
 from .job_status_retrieval_strategy import JobStatusRetrievalStrategy
 from .json_gen_strategy import JsonGenStrategy
-from .report_generation_strategy import ReportGenerationStrategy
 from .system import System
 from .test_scenario import TestRun
 
@@ -42,7 +41,6 @@ class TestTemplate:
         command_gen_strategy (CommandGenStrategy): Strategy for generating execution commands.
         json_gen_strategy (JsonGenStrategy): Strategy for generating json string.
         job_id_retrieval_strategy (JobIdRetrievalStrategy): Strategy for retrieving job IDs.
-        report_generation_strategy (ReportGenerationStrategy): Strategy for generating reports.
         grading_strategy (GradingStrategy): Strategy for grading performance based on test outcomes.
         job_status_retrieval_strategy (JobStatusRetrievalStrategy): Strategy for determining job statuses.
     """
@@ -64,7 +62,6 @@ class TestTemplate:
         self.json_gen_strategy: Optional[JsonGenStrategy] = None
         self.job_id_retrieval_strategy: Optional[JobIdRetrievalStrategy] = None
         self.job_status_retrieval_strategy: Optional[JobStatusRetrievalStrategy] = None
-        self.report_generation_strategy: Optional[ReportGenerationStrategy] = None
         self.grading_strategy: Optional[GradingStrategy] = None
 
     def __repr__(self) -> str:
@@ -92,40 +89,6 @@ class TestTemplate:
                 "by calling the appropriate registration function for the system type."
             )
         return self.command_gen_strategy.gen_exec_command(tr)
-
-    def gen_srun_command(self, tr: TestRun) -> str:
-        """
-        Generate an Slurm srun command for a test using the provided command generation strategy.
-
-        Args:
-            tr (TestRun): Contains the test and its run-specific configurations.
-
-        Returns:
-            str: The generated Slurm srun command.
-        """
-        if self.command_gen_strategy is None:
-            raise ValueError(
-                "command_gen_strategy is missing. Ensure the strategy is registered in the Registry "
-                "by calling the appropriate registration function for the system type."
-            )
-        return self.command_gen_strategy.gen_srun_command(tr)
-
-    def gen_srun_success_check(self, tr: TestRun) -> str:
-        """
-        Generate a Slurm success check command for a test using the provided command generation strategy.
-
-        Args:
-            tr (TestRun): Contains the test and its run-specific configurations.
-
-        Returns:
-            str: The generated command to check the success of the test run.
-        """
-        if self.command_gen_strategy is None:
-            raise ValueError(
-                "command_gen_strategy is missing. Ensure the strategy is registered in the Registry "
-                "by calling the appropriate registration function for the system type."
-            )
-        return self.command_gen_strategy.gen_srun_success_check(tr)
 
     def gen_json(self, tr: TestRun) -> Dict[Any, Any]:
         """
@@ -178,33 +141,6 @@ class TestTemplate:
                 "the Registry by calling the appropriate registration function for the system type."
             )
         return self.job_status_retrieval_strategy.get_job_status(output_path)
-
-    def can_handle_directory(self, directory_path: Path) -> bool:
-        """
-        Determine if the strategy can handle the directory.
-
-        Args:
-            directory_path (Path): Path to the directory.
-
-        Returns:
-            bool: True if can handle, False otherwise.
-        """
-        if self.report_generation_strategy is not None:
-            return self.report_generation_strategy.can_handle_directory(directory_path)
-        else:
-            return False
-
-    def generate_report(self, test_name: str, directory_path: Path, sol: Optional[float] = None) -> None:
-        """
-        Generate a report from the directory.
-
-        Args:
-            test_name (str): The name of the test.
-            directory_path (Path): Path to the directory.
-            sol (Optional[float]): Speed-of-light performance for reference.
-        """
-        if self.report_generation_strategy is not None:
-            return self.report_generation_strategy.generate_report(test_name, directory_path, sol)
 
     def grade(self, directory_path: Path, ideal_perf: float) -> Optional[float]:
         """

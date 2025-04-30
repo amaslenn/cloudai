@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,12 +19,31 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from cloudai import BaseJob, System
-from cloudai.util import CommandShell
-
+from ..._core.base_job import BaseJob
+from ..._core.installables import File, Installable
+from ..._core.system import System
+from ...util import CommandShell
 from .slurm_node import SlurmNode, SlurmNodeState
+
+
+class SlurmJobMetadata(BaseModel):
+    """Represents the metadata of a Slurm job."""
+
+    job_id: int
+    job_name: str
+    job_state: str
+    elapsed_time_sec: int
+    srun_cmd: str
+    test_cmd: str
+
+
+class DataRepositoryConfig(BaseModel):
+    """Configuration for a data repository."""
+
+    endpoint: str
+    verify_certs: bool = True
 
 
 def parse_node_list(node_list: str) -> List[str]:
@@ -76,25 +95,8 @@ class SlurmPartition(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     name: str
-    nodes: List[str]
     groups: List[SlurmGroup] = []
-
-    _slurm_nodes: List[SlurmNode] = []
-
-    @property
-    def slurm_nodes(self) -> List[SlurmNode]:
-        if self._slurm_nodes:
-            return self._slurm_nodes
-
-        node_names = set()
-        for nodes_list in self.nodes:
-            node_names.update(set(parse_node_list(nodes_list)))
-
-        self._slurm_nodes = [
-            SlurmNode(name=node_name, partition=self.name, state=SlurmNodeState.UNKNOWN_STATE)
-            for node_name in node_names
-        ]
-        return self._slurm_nodes
+    slurm_nodes: list[SlurmNode] = Field(default_factory=list[SlurmNode], exclude=True)
 
 
 class SlurmSystem(BaseModel, System):
@@ -132,10 +134,13 @@ class SlurmSystem(BaseModel, System):
     ntasks_per_node: Optional[int] = None
     cache_docker_images_locally: bool = False
     global_env_vars: Dict[str, Any] = {}
-    scheduler: str = "standalone"
-    monitor_interval: int = 1
-    cmd_shell: CommandShell = CommandShell()
+    scheduler: str = "slurm"
+    monitor_interval: int = 60
+    cmd_shell: CommandShell = Field(default=CommandShell(), exclude=True)
     extra_srun_args: Optional[str] = None
+    extra_sbatch_args: list[str] = []
+
+    data_repository: Optional[DataRepositoryConfig] = None
 
     @property
     def groups(self) -> Dict[str, Dict[str, List[SlurmNode]]]:
@@ -146,9 +151,23 @@ class SlurmSystem(BaseModel, System):
                 node_names = set()
                 for group_nodes in group.nodes:
                     node_names.update(set(parse_node_list(group_nodes)))
-                groups[part.name][group.name] = [node for node in part.slurm_nodes if node.name in node_names]
+
+                groups[part.name][group.name] = []
+                for node_name in node_names:
+                    node_in_partition = next((node for node in part.slurm_nodes if node.name == node_name), None)
+                    if not node_in_partition:
+                        logging.error(f"Node '{node_name}' not found in partition '{part.name}'")
+                        groups[part.name][group.name].append(
+                            SlurmNode(name=node_name, partition=self.name, state=SlurmNodeState.UNKNOWN_STATE)
+                        )
+                    else:
+                        groups[part.name][group.name].append(node_in_partition)
 
         return groups
+
+    @field_serializer("install_path", "output_path")
+    def _path_serializer(self, v: Path) -> str:
+        return str(v)
 
     def update(self) -> None:
         """
@@ -158,14 +177,17 @@ class SlurmSystem(BaseModel, System):
         commands, and correlating this information to determine the state of each node and the user running jobs on
         each node.
         """
-        self.update_node_states()
+        squeue_output, _ = self.fetch_command_output("squeue -o '%N|%u' --noheader")
+        sinfo_output, _ = self.fetch_command_output("sinfo")
+        node_user_map = self.parse_squeue_output(squeue_output)
+        self.parse_sinfo_output(sinfo_output, node_user_map)
 
     def is_job_running(self, job: BaseJob, retry_threshold: int = 3) -> bool:
         """
         Determine if a specified Slurm job is currently running by checking its presence and state in the job queue.
 
-        This method queries the Slurm job queue using 'squeue' to identify if the job with the specified ID is running.
-        It handles transient network or system errors by retrying the query a limited number of times.
+        This method queries the Slurm job accounting using 'sacct' to identify if the job with the specified ID is
+        running. It handles transient network or system errors by retrying the query a limited number of times.
 
         Args:
             job (BaseJob): The job to check.
@@ -176,23 +198,19 @@ class SlurmSystem(BaseModel, System):
 
         Raises:
             RuntimeError: If an error occurs that prevents determination of the job's running status, or if the status
-                         cannot be determined after the specified number of retries.
+                        cannot be determined after the specified number of retries.
         """
         retry_count = 0
-        command = f"squeue -j {job.id} --noheader --format=%T"
+        command = f"sacct -j {job.id} --format=State --noheader"
 
         while retry_count < retry_threshold:
-            logging.debug(f"Executing command to check job status: {command}")
             stdout, stderr = self.cmd_shell.execute(command).communicate()
+            logging.debug(f"Job running: {command=} {stdout=} {stderr=}")
 
             if "Socket timed out" in stderr or "slurm_load_jobs error" in stderr:
                 retry_count += 1
                 logging.warning(
-                    f"An error occurred while querying the job status. Retrying... ({retry_count}/{retry_threshold}). "
-                    "CloudAI uses Slurm commands by default to check the job status. The Slurm daemon can become "
-                    "overloaded and unresponsive, causing this error message. CloudAI retries the command multiple "
-                    f"times, with a maximum of {retry_threshold} attempts. Please ensure that the Slurm daemon is "
-                    "running and responsive."
+                    f"An error occurred while querying the job status. Retrying... ({retry_count}/{retry_threshold})."
                 )
                 continue
 
@@ -201,8 +219,8 @@ class SlurmSystem(BaseModel, System):
                 logging.error(error_message)
                 raise RuntimeError(error_message)
 
-            job_state = stdout.strip()
-            if job_state == "RUNNING":
+            job_states = stdout.strip().split()
+            if "RUNNING" in job_states:
                 return True
 
             break
@@ -231,12 +249,13 @@ class SlurmSystem(BaseModel, System):
             RuntimeError: If unable to determine job status after retries, or if a non-retryable error is encountered.
         """
         retry_count = 0
-        while retry_count < retry_threshold:
-            command = f"squeue -j {job.id}"
-            logging.debug(f"Checking job status with command: {command}")
-            stdout, stderr = self.cmd_shell.execute(command).communicate()
+        command = f"sacct -j {job.id} --format=State --noheader"
 
-            if "Socket timed out" in stderr:
+        while retry_count < retry_threshold:
+            stdout, stderr = self.cmd_shell.execute(command).communicate()
+            logging.debug(f"Job completed: {command=} {stdout=} {stderr=}")
+
+            if "Socket timed out" in stderr or "slurm_load_jobs error" in stderr:
                 retry_count += 1
                 logging.warning(f"Retrying job status check (attempt {retry_count}/{retry_threshold})")
                 continue
@@ -246,11 +265,46 @@ class SlurmSystem(BaseModel, System):
                 logging.error(error_message)
                 raise RuntimeError(error_message)
 
-            return str(job.id) not in stdout
+            job_states = stdout.strip().split()
+            if "RUNNING" in job_states:
+                return False
 
-        error_message = f"Failed to confirm job completion status after {retry_threshold} attempts."
-        logging.error(error_message)
-        raise RuntimeError(error_message)
+            if any(state in ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT", "CANCELLED+"] for state in job_states):
+                return True
+
+            break
+
+        if retry_count == retry_threshold:
+            error_message = f"Failed to confirm job completion status after {retry_threshold} attempts."
+            logging.error(error_message)
+            raise RuntimeError(error_message)
+
+        return False
+
+    def get_job_status(self, job: BaseJob, retry_threshold: int = 3) -> Optional[tuple[str, str, str]]:
+        retry_count = 0
+        command = f"sacct -j {job.id} --format=JobName,State,ElapsedRAW --delimiter=',' -p --noheader"
+
+        while retry_count < retry_threshold:
+            stdout, stderr = self.cmd_shell.execute(command).communicate()
+            logging.debug(f"Job status: {command=} {stdout=} {stderr=}")
+
+            if "Socket timed out" in stderr or "slurm_load_jobs error" in stderr:
+                retry_count += 1
+                logging.warning(f"Retrying job status check (attempt {retry_count}/{retry_threshold})")
+                continue
+
+            if stderr:
+                error_message = f"Error checking job status: {stderr}"
+                logging.error(error_message)
+                raise RuntimeError(error_message)
+
+            # sacct produces a single line per job, first line is for overall job
+            job_states = stdout.strip().splitlines()[0]
+            data = job_states.split(",")
+            return data[0], data[1], data[2]
+
+        return None
 
     def kill(self, job: BaseJob) -> None:
         """
@@ -339,111 +393,6 @@ class SlurmSystem(BaseModel, System):
 
         return ", ".join(formatted_ranges)
 
-    def __repr__(self) -> str:
-        """
-        Provide a structured string representation of the system.
-
-        Including the system name, scheduler type, and a simplified view similar to the `sinfo` command output,
-        focusing on the partition, state, and nodelist.
-        """
-        header = f"System Name: {self.name}\nScheduler Type: {self.scheduler}"
-        parts = [header, "\tPARTITION  STATE    NODELIST"]
-        for partition in self.partitions:
-            state_count = {}
-            for node in partition.slurm_nodes:
-                state_count.setdefault(node.state, []).append(node.name)
-            for state, names in state_count.items():
-                node_list_str = self.format_node_list(names)
-                parts.append(f"\t{partition.name:<10} {state.name:<7} {node_list_str}")
-        return "\n".join(parts)
-
-    def get_partition_names(self) -> List[str]:
-        """Return a list of all partition names."""
-        return [partition.name for partition in self.partitions]
-
-    def get_partition_nodes(self, partition_name: str) -> List[SlurmNode]:
-        """
-        Return a list of SlurmNode objects in the specified partition.
-
-        Args:
-            partition_name (str): The name of the partition.
-
-        Returns:
-            List[SlurmNode]: Nodes belonging to the specified partition.
-
-        Raises:
-            ValueError: If the partition does not exist.
-        """
-        for partition in self.partitions:
-            if partition.name == partition_name:
-                return partition.slurm_nodes
-        raise ValueError(f"Partition '{partition_name}' not found.")
-
-    def get_partition_node_names(self, partition_name: str) -> List[str]:
-        """
-        Return the names of all nodes within a specified partition.
-
-        Args:
-            partition_name (str): The name of the partition.
-
-        Returns:
-            List[str]: Names of nodes within the specified partition.
-        """
-        return [node.name for node in self.get_partition_nodes(partition_name)]
-
-    def get_group_names(self, partition_name: str) -> List[str]:
-        """
-        Retrieve names of all groups within a specified partition.
-
-        Args:
-            partition_name (str): The partition to query.
-
-        Returns:
-            List[str]: A list of group names within the specified partition.
-
-        Raises:
-            ValueError: If the partition is not found.
-        """
-        if partition_name not in self.groups:
-            raise ValueError(f"Partition '{partition_name}' not found.")
-        return list(self.groups[partition_name].keys())
-
-    def get_group_nodes(self, partition_name: str, group_name: str) -> List[SlurmNode]:
-        """
-        Return a list of SlurmNode objects in the specified group within a partition.
-
-        Args:
-            partition_name (str): The name of the partition.
-            group_name (str): The name of the group.
-
-        Returns:
-            List[SlurmNode]: Nodes belonging to the specified group within the partition.
-
-        Raises:
-            ValueError: If the partition or group does not exist.
-        """
-        if partition_name not in self.groups:
-            raise ValueError(f"Partition '{partition_name}' not found.")
-        if group_name not in self.groups[partition_name]:
-            raise ValueError(f"Group '{group_name}' not found in partition '{partition_name}'.")
-        return self.groups[partition_name][group_name]
-
-    def get_group_node_names(self, partition_name: str, group_name: str) -> List[str]:
-        """
-        Return the names of all nodes within a specified group and partition.
-
-        Args:
-            partition_name (str): The name of the partition.
-            group_name (str): The name of the group.
-
-        Returns:
-            List[str]: Names of nodes within the specified group and partition.
-
-        Raises:
-            ValueError: If the partition or group does not exist.
-        """
-        return [node.name for node in self.get_group_nodes(partition_name, group_name)]
-
     def get_available_nodes_from_group(
         self, partition_name: str, group_name: str, number_of_nodes: Union[int, str]
     ) -> List[SlurmNode]:
@@ -468,7 +417,7 @@ class SlurmSystem(BaseModel, System):
         """
         self.validate_partition_and_group(partition_name, group_name)
 
-        self.update_node_states()
+        self.update()
 
         grouped_nodes = self.group_nodes_by_state(partition_name, group_name)
 
@@ -529,6 +478,8 @@ class SlurmSystem(BaseModel, System):
             if node.state in grouped_nodes:
                 grouped_nodes[node.state].append(node)
 
+        logging.debug(f"Grouped nodes by state: {grouped_nodes}")
+
         return grouped_nodes
 
     def allocate_nodes(
@@ -585,18 +536,6 @@ class SlurmSystem(BaseModel, System):
 
         return allocated_nodes
 
-    def is_node_in_system(self, node_name: str) -> bool:
-        """
-        Check if a given node is part of the Slurm system.
-
-        Args:
-            node_name (str): The name of the node to check.
-
-        Returns:
-            True if the node is part of the system, otherwise False.
-        """
-        return any(any(node.name == node_name for node in part.slurm_nodes) for part in self.partitions)
-
     def scancel(self, job_id: int) -> None:
         """
         Terminates a specified Slurm job by sending a cancellation command.
@@ -605,39 +544,6 @@ class SlurmSystem(BaseModel, System):
             job_id (int): The ID of the job to cancel.
         """
         self.cmd_shell.execute(f"scancel {job_id}")
-
-    def update_node_states(self) -> None:
-        """
-        Update the states of nodes in the Slurm system.
-
-        By querying the current state of each node using the 'sinfo' command, and correlates this with 'squeue' to
-        determine which user is running jobs on each node. This method parses the output of these commands, identifies
-        the state of nodes and the users, and updates the corresponding SlurmNode instances in the system.
-        """
-        squeue_output = self.get_squeue()
-        sinfo_output = self.get_sinfo()
-        node_user_map = self.parse_squeue_output(squeue_output)
-        self.parse_sinfo_output(sinfo_output, node_user_map)
-
-    def get_squeue(self) -> str:
-        """
-        Fetch the output from the 'squeue' command.
-
-        Returns
-            str: The stdout from the 'squeue' command execution.
-        """
-        squeue_output, _ = self.fetch_command_output("squeue -o '%N|%u' --noheader")
-        return squeue_output
-
-    def get_sinfo(self) -> str:
-        """
-        Fetch the output from the 'sinfo' command.
-
-        Returns
-            str: The stdout from the 'sinfo' command execution.
-        """
-        sinfo_output, _ = self.fetch_command_output("sinfo")
-        return sinfo_output
 
     def fetch_command_output(self, command: str) -> Tuple[str, str]:
         """
@@ -709,11 +615,24 @@ class SlurmSystem(BaseModel, System):
                 for part in self.partitions:
                     if part.name != partition:
                         continue
+
+                    found = False
                     for node in part.slurm_nodes:
                         if node.name == node_name:
+                            found = True
                             node.state = state_enum
                             node.user = node_user_map.get(node_name, "N/A")
                             break
+
+                    if not found:
+                        part.slurm_nodes.append(
+                            SlurmNode(
+                                name=node_name,
+                                partition=partition,
+                                state=state_enum,
+                                user=node_user_map.get(node_name, "N/A"),
+                            )
+                        )
 
     def convert_state_to_enum(self, state_str: str) -> SlurmNodeState:
         """
@@ -804,13 +723,33 @@ class SlurmSystem(BaseModel, System):
                 group_nodes = self.get_available_nodes_from_group(partition_name, group_name, num_nodes)
                 parsed_nodes += [node.name for node in group_nodes]
             else:
-                # Handle both individual node names and ranges
-                if self.is_node_in_system(node_spec) or "[" in node_spec:
-                    expanded_nodes = parse_node_list(node_spec)
-                    parsed_nodes += expanded_nodes
-                else:
-                    raise ValueError(f"Node '{node_spec}' not found.")
+                expanded_nodes = parse_node_list(node_spec)
+                parsed_nodes += expanded_nodes
 
         # Remove duplicates while preserving order
         parsed_nodes = list(dict.fromkeys(parsed_nodes))
         return parsed_nodes
+
+    def get_nodes_by_spec(self, num_nodes: int, nodes: list[str]) -> Tuple[int, list[str]]:
+        """
+        Retrieve a list of node names based on specifications.
+
+        When nodes is empty, returns `(num_nodes, [])`, otherwise parses the node specifications and returns the number
+        of nodes and a list of node names.
+
+        Args:
+            num_nodes (int): The number of nodes, can't be `0`.
+            nodes (list[str]): A list of node names specifications, slurm format or `PARTITION:GROUP:NUM_NODES`.
+
+        Returns:
+            Tuple[int, list[str]]: The number of nodes and a list of node names.
+        """
+        num_nodes, node_list = num_nodes, []
+        parsed_nodes = self.parse_nodes(nodes)
+        if parsed_nodes:
+            num_nodes = len(parsed_nodes)
+            node_list = parsed_nodes
+        return num_nodes, node_list
+
+    def system_installables(self) -> list[Installable]:
+        return [File(Path(__file__).parent.absolute() / "slurm-metadata.sh")]

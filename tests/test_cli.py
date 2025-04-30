@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +32,7 @@ def test_help_message(capsys: pytest.CaptureFixture[str]) -> None:
         assert e.value.code == 0
 
     captured = capsys.readouterr()
-    assert "Cloud AI" in captured.out
+    assert "CloudAI" in captured.out
 
 
 def test_command_is_mandatory(capsys: pytest.CaptureFixture[str]) -> None:
@@ -214,15 +214,13 @@ class TestCLIDefaultModes:
         assert "verify-configs" in cli.handlers
         assert cli.handlers["verify-configs"] is handle_verify_all_configs
 
-        args = cli.parser.parse_args(
-            ["verify-configs", "--system-config", "system_config", "--tests-dir", "tests_dir", "configs_dir"]
-        )
+        args = cli.parser.parse_args(["verify-configs", "--tests-dir", "tests_dir", "configs_dir"])
         assert args == argparse.Namespace(
             log_file="debug.log",
             log_level="INFO",
             mode="verify-configs",
-            system_config=Path("system_config"),
             tests_dir=Path("tests_dir"),
+            strict=False,
             **{"configs_dir": Path("configs_dir")},
         )
 
@@ -231,8 +229,8 @@ class TestCLIDefaultModes:
             log_file="debug.log",
             log_level="INFO",
             mode="verify-configs",
-            system_config=None,
             tests_dir=None,
+            strict=False,
             **{"configs_dir": Path("configs_dir")},
         )
 
@@ -288,6 +286,7 @@ class TestCLIDefaultModes:
                 tests_dir=Path("tests_dir"),
                 test_scenario=Path("test_scenario"),
                 output_dir=None,
+                enable_cache_without_check=False,
             )
 
     @pytest.mark.parametrize(

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,10 +16,16 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Set, Type
+
+from .system import System
 
 if TYPE_CHECKING:
+    from .report_generation_strategy import ReportGenerationStrategy
     from .test import Test
+
+
+METRIC_ERROR = -1.0
 
 
 class TestDependency:
@@ -53,6 +59,7 @@ class TestRun:
     output_path: Path = Path("")
     iterations: int = 1
     current_iteration: int = 0
+    step: int = 0
     time_limit: Optional[str] = None
     sol: Optional[float] = None
     weight: float = 0.0
@@ -60,6 +67,7 @@ class TestRun:
     dependencies: dict[str, TestDependency] = field(default_factory=dict)
     pre_test: Optional["TestScenario"] = None
     post_test: Optional["TestScenario"] = None
+    reports: Set[Type["ReportGenerationStrategy"]] = field(default_factory=set)
 
     def __hash__(self) -> int:
         return hash(self.name + self.test.name + str(self.iterations) + str(self.current_iteration))
@@ -71,7 +79,25 @@ class TestRun:
         Returns
             bool: True if more iterations are pending, False otherwise.
         """
-        return self.current_iteration < self.iterations
+        return self.current_iteration + 1 < self.iterations
+
+    @property
+    def metric_reporter(self) -> Optional[Type["ReportGenerationStrategy"]]:
+        if not self.reports:
+            return None
+
+        for r in self.reports:
+            if self.test.test_definition.agent_metric in r.metrics:
+                return r
+
+        return None
+
+    def get_metric_value(self, system: System) -> float:
+        report = self.metric_reporter
+        if report is None:
+            return METRIC_ERROR
+
+        return report(system, self).get_metric(self.test.test_definition.agent_metric)
 
 
 class TestScenario:

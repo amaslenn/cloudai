@@ -28,7 +28,7 @@ from cloudai._core.cases_iter import CasesIter, StaticCasesListIter
 from cloudai._core.job_status_result import JobStatusResult
 from cloudai._core.test_scenario import TestDependency
 from cloudai._core.test_template import TestTemplate
-from cloudai.test_definitions.sleep import SleepCmdArgs, SleepTestDefinition
+from cloudai.workloads.sleep import SleepCmdArgs, SleepTestDefinition
 
 
 class MySystem(System):

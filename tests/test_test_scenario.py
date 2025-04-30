@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,12 +16,44 @@
 
 
 from pathlib import Path
-from unittest.mock import Mock
+from typing import Set, Type
+from unittest.mock import Mock, patch
 
 import pytest
 
-from cloudai import CmdArgs, Test, TestRun, TestScenarioParser, TestScenarioParsingError
-from cloudai._core.test_scenario_parser import _TestScenarioTOML
+from cloudai import CmdArgs, Registry, Test, TestRun, TestScenario, TestScenarioParser, TestScenarioParsingError
+from cloudai._core.installables import GitRepo
+from cloudai._core.report_generation_strategy import ReportGenerationStrategy
+from cloudai._core.test import PredictorConfig, TestDefinition
+from cloudai._core.test_scenario_parser import (
+    _TestRunTOML,
+    _TestScenarioTOML,
+    calculate_total_time_limit,
+    get_reporters,
+)
+from cloudai.workloads.chakra_replay import ChakraReplayReportGenerationStrategy, ChakraReplayTestDefinition
+from cloudai.workloads.jax_toolbox import (
+    GPTTestDefinition,
+    GrokTestDefinition,
+    JaxToolboxReportGenerationStrategy,
+    NemotronTestDefinition,
+)
+from cloudai.workloads.megatron_run import CheckpointTimingReportGenerationStrategy, MegatronRunTestDefinition
+from cloudai.workloads.nccl_test import (
+    NCCLTestDefinition,
+    NcclTestPerformanceReportGenerationStrategy,
+)
+from cloudai.workloads.nccl_test.nccl import NCCLCmdArgs
+from cloudai.workloads.nccl_test.prediction_report_generation_strategy import NcclTestPredictionReportGenerationStrategy
+from cloudai.workloads.nemo_launcher import NeMoLauncherReportGenerationStrategy, NeMoLauncherTestDefinition
+from cloudai.workloads.nemo_run import (
+    NeMoRunDataStoreReportGenerationStrategy,
+    NeMoRunReportGenerationStrategy,
+    NeMoRunTestDefinition,
+)
+from cloudai.workloads.sleep import SleepReportGenerationStrategy, SleepTestDefinition
+from cloudai.workloads.slurm_container import SlurmContainerReportGenerationStrategy, SlurmContainerTestDefinition
+from cloudai.workloads.ucc_test import UCCTestDefinition, UCCTestReportGenerationStrategy
 from tests.conftest import MyTestDefinition
 
 
@@ -91,7 +123,7 @@ def test_with_time_limit(test: Test, test_scenario_parser: TestScenarioParser) -
     test_scenario = test_scenario_parser._parse_data(
         {"name": "nccl-test", "Tests": [{"id": "1", "test_name": "nccl", "time_limit": "10m"}]}
     )
-    assert test_scenario.test_runs[0].time_limit == "10m"
+    assert test_scenario.test_runs[0].time_limit == "00:10:00"
 
 
 def test_two_independent_cases(test: Test, test_scenario_parser: TestScenarioParser) -> None:
@@ -202,3 +234,144 @@ def test_test_id_must_contain_at_least_one_letter() -> None:
     with pytest.raises(ValueError) as exc_info:
         _TestScenarioTOML.model_validate({"name": "name", "Tests": [{"id": "", "test_name": "nccl"}]})
     assert exc_info.match("_TestScenarioTOML\nTests.0.id\n  String should have at least 1 character")
+
+
+@pytest.mark.parametrize(
+    "time_str, expected",
+    [
+        ("10m", "00:10:00"),
+        ("1h", "01:00:00"),
+        ("2d", "2-00:00:00"),
+        ("1w", "7-00:00:00"),
+        ("30s", "00:00:30"),
+        ("1-12:30:45", "1-12:30:45"),
+        ("12:30:45", "12:30:45"),
+        ("12:30", "12:30:00"),
+    ],
+)
+def test_calculate_total_time_limit(time_str, expected):
+    assert calculate_total_time_limit([], time_limit=time_str) == expected
+
+
+def test_create_test_run_with_hooks(test: Test, test_scenario_parser: TestScenarioParser):
+    pre_test = TestScenario(
+        name="pre",
+        test_runs=[TestRun(name="pre1", test=test, num_nodes=1, nodes=[], time_limit="00:30:00", iterations=1)],
+    )
+    post_test = TestScenario(
+        name="post",
+        test_runs=[TestRun(name="post1", test=test, num_nodes=1, nodes=[], time_limit="00:20:00", iterations=1)],
+    )
+
+    test_info = _TestRunTOML(id="main1", test_name="test1", time_limit="01:00:00", weight=10, iterations=1, num_nodes=1)
+    test_scenario_parser.test_mapping = {"test1": test}
+
+    test_run = test_scenario_parser._create_test_run(
+        test_info=test_info, normalized_weight=1.0, pre_test=pre_test, post_test=post_test
+    )
+
+    assert test_run.time_limit == "01:50:00"  # Main + pre + post hooks
+
+
+def test_total_time_limit_with_empty_hooks():
+    result = calculate_total_time_limit([], "01:00:00")
+    assert result == "01:00:00"
+
+
+class TestReporters:
+    def test_default(self):
+        reporters = get_reporters(
+            _TestRunTOML(id="id", test_name="tn"),
+            MyTestDefinition(name="test", description="desc", test_template_name="tt", cmd_args=CmdArgs()),
+        )
+        assert len(reporters) == 0
+
+    def test_default_reporters_size(self):
+        assert len(Registry().reports_map) == 11
+
+    @pytest.mark.parametrize(
+        "tdef,expected_reporters",
+        [
+            (ChakraReplayTestDefinition, {ChakraReplayReportGenerationStrategy}),
+            (GPTTestDefinition, {JaxToolboxReportGenerationStrategy}),
+            (GrokTestDefinition, {JaxToolboxReportGenerationStrategy}),
+            (MegatronRunTestDefinition, {CheckpointTimingReportGenerationStrategy}),
+            (NCCLTestDefinition, {NcclTestPerformanceReportGenerationStrategy}),
+            (NeMoLauncherTestDefinition, {NeMoLauncherReportGenerationStrategy}),
+            (NeMoRunTestDefinition, {NeMoRunReportGenerationStrategy, NeMoRunDataStoreReportGenerationStrategy}),
+            (NemotronTestDefinition, {JaxToolboxReportGenerationStrategy}),
+            (SleepTestDefinition, {SleepReportGenerationStrategy}),
+            (SlurmContainerTestDefinition, {SlurmContainerReportGenerationStrategy}),
+            (UCCTestDefinition, {UCCTestReportGenerationStrategy}),
+        ],
+    )
+    def test_custom_reporters(self, tdef: Type[TestDefinition], expected_reporters: Set[ReportGenerationStrategy]):
+        assert Registry().reports_map[tdef] == expected_reporters
+
+    def test_get_reporters_nccl(self):
+        tr_model = _TestRunTOML(id="id", test_name="nccl", time_limit="01:00:00", weight=10, iterations=1, num_nodes=1)
+        tdef = NCCLTestDefinition(name="nccl", description="desc", test_template_name="tt", cmd_args=NCCLCmdArgs())
+        reporters = get_reporters(tr_model, tdef)
+        assert len(reporters) == 1
+        assert NcclTestPerformanceReportGenerationStrategy in reporters
+
+        tdef.predictor = PredictorConfig(git_repo=GitRepo(url="", commit=""))
+        reporters = get_reporters(tr_model, tdef)
+        assert len(reporters) == 2
+        assert NcclTestPerformanceReportGenerationStrategy in reporters
+        assert NcclTestPredictionReportGenerationStrategy in reporters
+
+
+class TestReportMetricsDSE:
+    @pytest.fixture
+    def test_info(self) -> _TestRunTOML:
+        return _TestRunTOML(id="main1", test_name="nccl", time_limit="01:00:00", weight=10, iterations=1, num_nodes=1)
+
+    @pytest.fixture
+    def ts_parser(self, test_scenario_parser: TestScenarioParser) -> TestScenarioParser:
+        nccl = NCCLTestDefinition(
+            name="nccl",
+            description="desc",
+            test_template_name="tt",
+            cmd_args=NCCLCmdArgs(),
+            extra_env_vars={"DSE": ["v1", "v2"]},
+        )
+        test_scenario_parser.test_mapping["nccl"] = Test(test_definition=nccl, test_template=Mock())
+        return test_scenario_parser
+
+    def test_raises_on_unknown_metric(
+        self, ts_parser: TestScenarioParser, test_info: _TestRunTOML, caplog: pytest.LogCaptureFixture
+    ):
+        tdef = ts_parser.test_mapping[test_info.test_name].test_definition
+        tdef.agent_metric = "unknown"
+
+        with pytest.raises(TestScenarioParsingError) as exc_info:
+            ts_parser._create_test_run(test_info=test_info, normalized_weight=1.0)
+
+        mapping_str = (
+            f"{NcclTestPerformanceReportGenerationStrategy}: {NcclTestPerformanceReportGenerationStrategy.metrics}"
+        )
+        msg = (
+            f"Test '{test_info.id}' is a DSE job with agent_metric='{tdef.agent_metric}', "
+            "but no report generation strategy is defined for it. "
+            f"Available report-metrics mapping: {{{mapping_str}}}"
+        )
+        assert str(exc_info.value) == msg
+        assert caplog.records[0].levelname == "ERROR"
+        assert caplog.records[0].message == f"Failed to parse Test Scenario definition: {ts_parser.file_path}"
+        assert caplog.records[1].levelname == "ERROR"
+        assert caplog.records[1].message == msg
+
+    @patch("cloudai._core.test_scenario_parser.get_reporters", return_value=set())
+    def test_raises_if_no_reports_defined(self, _, ts_parser: TestScenarioParser, test_info: _TestRunTOML):
+        tdef = ts_parser.test_mapping[test_info.test_name].test_definition
+        tdef.agent_metric = "default"
+
+        with pytest.raises(TestScenarioParsingError) as exc_info:
+            ts_parser._create_test_run(test_info=test_info, normalized_weight=1.0)
+
+        assert str(exc_info.value) == (
+            f"Test '{test_info.id}' is a DSE job with agent_metric='{tdef.agent_metric}', "
+            "but no report generation strategy is defined for it. "
+            "Available report-metrics mapping: {}"
+        )

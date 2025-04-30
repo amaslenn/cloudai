@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +21,7 @@ from unittest.mock import Mock
 import pytest
 
 from cloudai import TestDefinition
+from cloudai.systems.runai.runai_system import RunAISystem
 from cloudai.systems.slurm.slurm_system import SlurmGroup, SlurmPartition, SlurmSystem
 
 
@@ -39,7 +40,6 @@ def slurm_system(tmp_path: Path) -> SlurmSystem:
         partitions=[
             SlurmPartition(
                 name="main",
-                nodes=["node-[033-064]"],
                 groups=[
                     SlurmGroup(name="group1", nodes=["node-[033-048]"]),
                     SlurmGroup(name="group2", nodes=["node-[049-064]"]),
@@ -47,13 +47,33 @@ def slurm_system(tmp_path: Path) -> SlurmSystem:
             ),
             SlurmPartition(
                 name="backup",
-                nodes=["node0[1-8]"],
                 groups=[
                     SlurmGroup(name="group1", nodes=["node0[1-4]"]),
                     SlurmGroup(name="group2", nodes=["node0[5-8]"]),
                 ],
             ),
         ],
+    )
+    system.scheduler = "slurm"
+    system.monitor_interval = 0
+    return system
+
+
+@pytest.fixture
+def runai_system(tmp_path: Path) -> RunAISystem:
+    system = RunAISystem(
+        name="test_runai_system",
+        install_path=tmp_path / "install",
+        output_path=tmp_path / "output",
+        base_url="http://runai.example.com",
+        app_id="test_app_id",
+        app_secret="test_app_secret",
+        project_id="test_project_id",
+        cluster_id="test_cluster_id",
+        scheduler="runai",
+        global_env_vars={},
+        monitor_interval=60,
+        user_email="test_user@example.com",
     )
     return system
 

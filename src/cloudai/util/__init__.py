@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,8 +14,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+import os
+from pathlib import Path
+from typing import Optional
+
 from .command_shell import CommandShell
+
+
+def prepare_output_dir(path: Path) -> Optional[Path]:
+    exists = False
+    try:
+        exists = path.exists()
+    except PermissionError as e:
+        logging.error(f"Output path '{path.absolute()}' is not accessible: {e}")
+        return None
+
+    if exists:
+        if not os.access(path, os.W_OK):
+            logging.error(f"Output path '{path.absolute()}' exists but is not writable.")
+            return None
+        if not path.is_dir():
+            logging.error(f"Output path '{path.absolute()}' exists but is not a directory.")
+            return None
+        return path
+
+    path.mkdir(parents=True)
+    return path
+
 
 __all__ = [
     "CommandShell",
+    "prepare_output_dir",
 ]

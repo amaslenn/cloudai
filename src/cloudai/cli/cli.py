@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,7 +27,7 @@ from .handlers import (
 
 
 class CloudAICLI:
-    """Command-line argument parser for Cloud AI and derivatives."""
+    """Command-line argument parser for CloudAI and derivatives."""
 
     def __init__(self):
         self.DEFAULT_MODES = {
@@ -39,7 +39,7 @@ class CloudAICLI:
             "verify-configs",
         }
 
-        self.parser = argparse.ArgumentParser(description="Cloud AI")
+        self.parser = argparse.ArgumentParser(description="CloudAI")
         self.parser.add_argument(
             "--log-file", default="debug.log", help="The name of the log file (default: %(default)s)."
         )
@@ -106,10 +106,12 @@ class CloudAICLI:
                     "Test TOML files or all Test TOML files in the given directory."
                 ),
                 handle_verify_all_configs,
-                system_config=False,
                 tests_dir=False,
             )
             p.add_argument("configs_dir", help="Path to a file or the directory containing the TOML files.", type=Path)
+            p.add_argument(
+                "--strict", help="Warn about unknown keys in Test TOML files.", action="store_true", default=False
+            )
 
         return self.parser
 
@@ -121,7 +123,7 @@ class CloudAICLI:
             desc = "Execute the test scenarios."
             if mode == "dry-run":
                 desc = "Perform a dry-run of the test scenarios without executing them."
-            self.add_command(
+            p = self.add_command(
                 mode,
                 desc,
                 handle_dry_run_and_run,
@@ -129,6 +131,12 @@ class CloudAICLI:
                 tests_dir=True,
                 test_scenario=True,
                 output_dir=False,
+            )
+            p.add_argument(
+                "--enable-cache-without-check",
+                action="store_true",
+                help="Enable cache without checking.",
+                default=False,
             )
 
     def add_install_and_uninstall(self):

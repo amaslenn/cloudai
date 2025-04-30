@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,18 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 
 from .test_scenario import TestRun
 from .test_template_strategy import TestTemplateStrategy
 
 
-class CommandGenStrategy(TestTemplateStrategy):
-    """
-    Abstract base class defining the interface for command generation strategies across different system environments.
-
-    It specifies how to generate execution commands based on system and test parameters.
-    """
+class CommandGenStrategy(TestTemplateStrategy, ABC):
+    """Abstract base class defining the interface for command generation strategies across different systems."""
 
     @abstractmethod
     def gen_exec_command(self, tr: TestRun) -> str:
@@ -37,31 +33,5 @@ class CommandGenStrategy(TestTemplateStrategy):
 
         Returns:
             str: The generated execution command.
-        """
-        pass
-
-    @abstractmethod
-    def gen_srun_command(self, tr: TestRun) -> str:
-        """
-        Generate the Slurm srun command for a test based on the given parameters.
-
-        Args:
-            tr (TestRun): Contains the test and its run-specific configurations.
-
-        Returns:
-            str: The generated Slurm srun command.
-        """
-        pass
-
-    @abstractmethod
-    def gen_srun_success_check(self, tr: TestRun) -> str:
-        """
-        Generate the Slurm success check command to verify if a test run was successful.
-
-        Args:
-            tr (TestRun): Contains the test and its run-specific configurations.
-
-        Returns:
-            str: The generated command to check the success of the test run.
         """
         pass
