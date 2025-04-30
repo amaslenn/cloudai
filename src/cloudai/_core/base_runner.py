@@ -365,17 +365,17 @@ class BaseRunner(ABC):
 
 
 class NewBaseRunner(ABC):
-    def __init__(self, mode: str, system: System, test_scenario: TestScenario):
+    def __init__(self, mode: str, system: System, test_scenario: TestScenario, output_path: Path):
         self.mode = mode
         self.system = system
         self.test_scenario = test_scenario
         self.cases_iter = StaticCasesListIter(test_scenario)
+        self.scenario_root = output_path
 
         self.active_jobs: dict[str, BaseJob] = {}
         self.completed_jobs: dict[str, BaseJob] = {}
 
-        current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.output_path = self.system.output_path / f"{self.test_scenario.name}_{current_time}"
+        self.output_path = output_path  # TODO: remove this, use self.scenario_root
 
     @abstractmethod
     def submit_one(self, tr: TestRun) -> None: ...
@@ -418,3 +418,12 @@ class NewBaseRunner(ABC):
 
     async def run(self):
         return self.arun()
+
+    async def shutdown(self):
+        """Gracefully shut down the runner, terminating all outstanding jobs."""
+        self.shutting_down = True
+        logging.info("Terminating all jobs...")
+        for job in self.active_jobs.values():
+            logging.info(f"Terminating job {job.id} for test {job.test_run.name}")
+            self.system.kill(job)
+        logging.info("All jobs have been killed.")

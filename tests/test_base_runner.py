@@ -14,10 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Optional, final
+from typing import Any, Dict, Optional
 from unittest.mock import Mock
 
 import pytest
@@ -70,35 +69,22 @@ class SlurmSbatchRunner(NewBaseRunner):
     when new jobs are available, they are submitted to the system too. Each job is an sbatch run.
     """
 
-    def __init__(self, mode: str, system: MySystem, test_scenario_iter: CasesIter):
+    def __init__(self, mode: str, system: MySystem, test_scenario: TestScenario, output_path: Path) -> None:
         self.mode = mode
         self.system = system
-        self.test_scenario_iter = test_scenario_iter
+        self.test_scenario = test_scenario
+        self.cases_iter = StaticCasesListIter(test_scenario)
 
         self.active_jobs: dict[str, BaseJob] = {}
         self.completed_jobs: dict[str, BaseJob] = {}
 
-    @final
-    def run(self):
-        while self.test_scenario_iter.has_more_cases:
-            for tr in self.test_scenario_iter:
-                self.submit_one(tr)
-
-            self.process_completed_jobs()
-            self.clean_active_jobs()
-
-            time.sleep(self.system.monitor_interval)
-
-        while self.active_jobs:
-            self.process_completed_jobs()
-            self.clean_active_jobs()
-            time.sleep(self.system.monitor_interval)
+        self.output_path = output_path  # TODO: remove this, use self.scenario_root
 
     def process_completed_jobs(self):
         for job in self.active_jobs.values():
             if self.system.is_job_completed(job):
                 self.completed_jobs[job.test_run.name] = job
-                self.test_scenario_iter.on_completed(job.test_run, self)
+                self.cases_iter.on_completed(job.test_run, self)
 
     def clean_active_jobs(self):
         in_common = set(self.active_jobs.keys()) & set(self.completed_jobs.keys())
@@ -213,12 +199,15 @@ class TestStaticScenarioIter:
 
 
 class TestMyRunner:
-    def test_two_independent_runs(self, partial_tr: partial[TestRun], system: MySystem):
+    @pytest.mark.asyncio
+    async def test_two_independent_runs(self, partial_tr: partial[TestRun], system: MySystem):
         tr1, tr2 = partial_tr(name="tr1"), partial_tr(name="tr2")
 
         ssi = StaticCasesListIter(TestScenario(name="scenario", test_runs=[tr1, tr2]))
-        runner = SlurmSbatchRunner("run", system, ssi)
-        runner.run()
+        runner = SlurmSbatchRunner(
+            "run", system, TestScenario(name="scenario", test_runs=[tr1, tr2]), system.output_path
+        )
+        await runner.run()
 
         assert len(runner.active_jobs) == 0
         assert len(runner.completed_jobs) == 2
@@ -227,13 +216,16 @@ class TestMyRunner:
         assert runner.completed_jobs[tr2.name].id == 1
         assert runner.completed_jobs[tr2.name].test_run.name == tr2.name
 
-    def test_two_dependent_runs(self, partial_tr: partial[TestRun], system: MySystem):
+    @pytest.mark.asyncio
+    async def test_two_dependent_runs(self, partial_tr: partial[TestRun], system: MySystem):
         main_tr = partial_tr(name="tr-main")
         dep_tr = partial_tr(name="tr-dep", dependencies={"start_post_comp": TestDependency(main_tr)})
 
         ssi = StaticCasesListIter(TestScenario(name="scenario", test_runs=[dep_tr, main_tr]))
-        runner = SlurmSbatchRunner("run", system, ssi)
-        runner.run()
+        runner = SlurmSbatchRunner(
+            "run", system, TestScenario(name="scenario", test_runs=[dep_tr, main_tr]), system.output_path
+        )
+        await runner.run()
 
         assert len(runner.active_jobs) == 0
         assert len(runner.completed_jobs) == 2
@@ -242,14 +234,20 @@ class TestMyRunner:
         assert runner.completed_jobs[dep_tr.name].id == 1
         assert runner.completed_jobs[dep_tr.name].test_run.name == dep_tr.name
 
-    def test_two_dependencies(self, partial_tr: partial[TestRun], system: MySystem):
+    @pytest.mark.asyncio
+    async def test_two_dependencies(self, partial_tr: partial[TestRun], system: MySystem):
         main_tr = partial_tr(name="tr-main")
         post_comp_tr = partial_tr(name="tr-post_comp", dependencies={"start_post_comp": TestDependency(main_tr)})
         post_init_tr = partial_tr(name="tr-post_init", dependencies={"start_post_init": TestDependency(main_tr)})
 
         ssi = StaticCasesListIter(TestScenario(name="scenario", test_runs=[post_comp_tr, post_init_tr, main_tr]))
-        runner = SlurmSbatchRunner("run", system, ssi)
-        runner.run()
+        runner = SlurmSbatchRunner(
+            "run",
+            system,
+            TestScenario(name="scenario", test_runs=[post_comp_tr, post_init_tr, main_tr]),
+            system.output_path,
+        )
+        await runner.run()
 
         assert len(runner.active_jobs) == 0
         assert len(runner.completed_jobs) == 3

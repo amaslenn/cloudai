@@ -63,13 +63,13 @@ class StandaloneRunner(BaseRunner):
 class NewStandaloneRunner(NewBaseRunner):
     """Standalone Runner."""
 
-    def __init__(self, mode: str, system: StandaloneSystem, test_scenario: TestScenario):
-        super().__init__(mode, system, test_scenario)
+    def __init__(self, mode: str, system: StandaloneSystem, test_scenario: TestScenario, output_path: Path):
+        super().__init__(mode, system, test_scenario, output_path)
         self.system = cast(StandaloneSystem, system)
         self.test_scenario_iter = StaticCasesListIter(test_scenario)
 
-        self.active_jobs: dict[str, StandaloneJob] = {}
-        self.completed_jobs: dict[str, StandaloneJob] = {}
+        self.active_jobs: dict[str, StandaloneJob] = {}  # type: ignore
+        self.completed_jobs: dict[str, StandaloneJob] = {}  # type: ignore
 
         self.running_procs: dict[int, subprocess.Popen] = {}
 

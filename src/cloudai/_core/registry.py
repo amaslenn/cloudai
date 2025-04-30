@@ -44,7 +44,7 @@ class Singleton(type):
 class Registry(metaclass=Singleton):
     """Registry for implementations mappings."""
 
-    runners_map: ClassVar[dict[str, Type[BaseRunner]]] = {}
+    runners_map: ClassVar[dict[str, Union[Type[BaseRunner], Type[NewBaseRunner]]]] = {}
     strategies_map: ClassVar[
         dict[
             Tuple[
