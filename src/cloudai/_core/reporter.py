@@ -90,6 +90,34 @@ class SlurmReportItem:
         return report_items
 
 
+@dataclass
+class DSEReportItem:
+    name: str
+    cluster_name: Optional[str]
+    nodes: Optional[int]
+    total_combinations: int
+    agent_steps: int
+
+    @classmethod
+    def from_test_runs(cls, test_runs: list[TestRun], system: System) -> list["DSEReportItem"]:
+        report_items: list[DSEReportItem] = []
+        for tr in test_runs:
+            if tr.test.test_definition.is_dse_job:
+                cluster_name = system.name if isinstance(system, SlurmSystem) else None
+                nodes = tr.num_nodes
+
+                report_items.append(
+                    DSEReportItem(
+                        name=tr.name,
+                        cluster_name=cluster_name,
+                        nodes=nodes,
+                        total_combinations=0,  # TODO: implement when available
+                        agent_steps=tr.test.test_definition.agent_steps,
+                    )
+                )
+        return report_items
+
+
 class Reporter(ABC):
     def __init__(self, system: System, test_scenario: TestScenario, results_root: Path) -> None:
         self.system = system
@@ -165,7 +193,9 @@ class StatusReporter(Reporter):
             if isinstance(self.system, SlurmSystem)
             else ReportItem.from_test_runs(self.trs, self.results_root)
         )
-        report = template.render(name=self.test_scenario.name, report_items=report_items)
+        dse_items = DSEReportItem.from_test_runs(self.trs, self.system)
+
+        report = template.render(name=self.test_scenario.name, report_items=report_items, dse_items=dse_items)
         report_path = self.results_root / f"{self.test_scenario.name}.html"
         with report_path.open("w") as f:
             f.write(report)
