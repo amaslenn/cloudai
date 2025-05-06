@@ -62,6 +62,7 @@
                 <th>Number of Nodes</th>
                 <th>Total Combinations</th>
                 <th>Agent Steps</th>
+                <th>Saving</th>
             </tr>
             {% for item in dse_items %}
             <tr>
@@ -70,6 +71,7 @@
                 <td>{{ item.nodes }}</td>
                 <td>{{ item.total_combinations }}</td>
                 <td>{{ item.agent_steps }}</td>
+                <td>{% if item.total_combinations > 0 %}{{ "%.2f"|format(item.agent_steps / item.total_combinations * 100) }}%{% else %}N/A{% endif %}</td>
             </tr>
             {% endfor %}
         </table>
