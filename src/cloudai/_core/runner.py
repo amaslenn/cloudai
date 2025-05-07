@@ -14,11 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import asyncio
+import copy
 import datetime
 import logging
+import signal
 from types import FrameType
-from typing import Optional
+from typing import Callable, Optional
 
 from .base_runner import BaseRunner
 from .exceptions import JobFailureError
@@ -47,9 +50,10 @@ class Runner:
 
     def __init__(self, mode: str, system: System, test_scenario: TestScenario):
         logging.info(f"Initializing Runner [{mode.upper()}] mode")
-        self.runner = self.create_runner(mode, system, test_scenario)
+        self.mode = mode
+        self.runner = self._create_runner(mode, system, test_scenario)
 
-    def create_runner(self, mode: str, system: System, test_scenario: TestScenario) -> BaseRunner:
+    def _create_runner(self, mode: str, system: System, test_scenario: TestScenario) -> BaseRunner:
         """
         Dynamically create a runner instance based on the system's scheduler type.
 
@@ -82,9 +86,52 @@ class Runner:
 
     async def run(self):
         """Run the test scenario using the instantiated runner."""
+        all_dse = all(tr.test.test_definition.is_dse_job for tr in self.runner.test_scenario.test_runs)
+        has_dse = any(tr.test.test_definition.is_dse_job for tr in self.runner.test_scenario.test_runs)
+
+        if has_dse and not all_dse:
+            raise ValueError("Mixing DSE and non-DSE jobs is not allowed.")
+
+        if has_dse:
+            self._run_dse()
+        else:
+            await self._run_non_dse()
+
+    def _run_dse(self):
+        from cloudai._core.configurator.cloudai_gym import CloudAIGymEnv
+
+        registry = Registry()
+
+        for tr in self.runner.test_scenario.test_runs:
+            test_run = copy.deepcopy(tr)
+            env = CloudAIGymEnv(test_run=test_run, runner=self)
+            agent_type = test_run.test.test_definition.agent
+
+            agent_class = registry.agents_map.get(agent_type)
+            if agent_class is None:
+                logging.error(
+                    f"No agent available for type: {agent_type}. Please make sure {agent_type} "
+                    f"is a valid agent type. Available agents: {registry.agents_map.keys()}"
+                )
+                continue
+
+            agent = agent_class(env)
+            for step in range(agent.max_steps):
+                result = agent.select_action()
+                if result is None:
+                    break
+                step, action = result
+                env.test_run.step = step
+                observation, reward, done, info = env.step(action)
+                feedback = {"trial_index": step, "value": reward}
+                agent.update_policy(feedback)
+                logging.info(f"Step {step}: Observation: {observation}, Reward: {reward}")
+
+    async def _run_non_dse(self):
         try:
             await self.runner.run()
             logging.debug("All jobs finished successfully.")
+            logging.info(f"All test scenario results stored at: {self.runner.scenario_root}")
         except JobFailureError as exc:
             logging.debug(f"Runner failed JobFailure exception: {exc}", exc_info=True)
 
@@ -112,3 +159,52 @@ class Runner:
     ):
         logging.info(f"Signal {signum} received, shutting down...")
         asyncio.get_running_loop().call_soon_threadsafe(self._cancel_all)
+
+    @classmethod
+    def register_signal_handlers(cls, signal_handler: Callable) -> None:
+        """Register signal handlers for handling termination-related signals."""
+        signals = [
+            signal.SIGINT,
+            signal.SIGTERM,
+            signal.SIGHUP,
+            signal.SIGQUIT,
+        ]
+        for sig in signals:
+            signal.signal(sig, signal_handler)
+
+    def handle_dse_job(self, args: argparse.Namespace):
+        """Handle DSE (Design Space Exploration) jobs."""
+        from cloudai._core.configurator.cloudai_gym import CloudAIGymEnv
+
+        registry = Registry()
+
+        for tr in self.runner.test_scenario.test_runs:
+            test_run = copy.deepcopy(tr)
+            env = CloudAIGymEnv(test_run=test_run, runner=self)
+            agent_type = test_run.test.test_definition.agent
+
+            agent_class = registry.agents_map.get(agent_type)
+            if agent_class is None:
+                logging.error(
+                    f"No agent available for type: {agent_type}. Please make sure {agent_type} "
+                    f"is a valid agent type. Available agents: {registry.agents_map.keys()}"
+                )
+                continue
+
+            agent = agent_class(env)
+            for step in range(agent.max_steps):
+                result = agent.select_action()
+                if result is None:
+                    break
+                step, action = result
+                env.test_run.step = step
+                observation, reward, done, info = env.step(action)
+                feedback = {"trial_index": step, "value": reward}
+                agent.update_policy(feedback)
+                logging.info(f"Step {step}: Observation: {observation}, Reward: {reward}")
+
+    def handle_non_dse_job(self, args: argparse.Namespace) -> None:
+        """Handle non-DSE jobs."""
+        asyncio.run(self.run())
+        logging.info(f"All test scenario results stored at: {self.runner.scenario_root}")
+        logging.info("All jobs are complete.")
