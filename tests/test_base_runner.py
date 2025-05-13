@@ -23,7 +23,7 @@ import pytest
 
 from cloudai import BaseJob, System, Test, TestRun, TestScenario
 from cloudai._core.base_runner import NewBaseRunner
-from cloudai._core.cases_iter import CasesIter, StaticCasesListIter
+from cloudai._core.cases_iter import StaticCasesListIter
 from cloudai._core.job_status_result import JobStatusResult
 from cloudai._core.test_scenario import TestDependency
 from cloudai._core.test_template import TestTemplate
@@ -115,7 +115,7 @@ def system(tmp_path: Path) -> MySystem:
 @pytest.fixture
 def test(system: MySystem) -> Test:
     tdef = SleepTestDefinition(name="test", description="desc", test_template_name="template", cmd_args=SleepCmdArgs())
-    ttempl = TestTemplate(name="template", system=system)
+    ttempl = TestTemplate(system=system)
     ttempl.get_job_id = Mock(return_value=0)
     ttempl.get_job_status = Mock(return_value=JobStatusResult(True))
     test = Test(test_definition=tdef, test_template=ttempl)
