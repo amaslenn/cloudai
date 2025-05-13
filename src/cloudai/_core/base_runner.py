@@ -253,8 +253,7 @@ class BaseRunner(ABC):
                             await self.handle_job_completion(job)
                         else:
                             error_message = (
-                                f"Job {job.id} for test {job.test_run.name} failed: "
-                                f"{job_status_result.error_message}"
+                                f"Job {job.id} for test {job.test_run.name} failed: {job_status_result.error_message}"
                             )
                             logging.error(error_message)
                             await self.shutdown()
@@ -263,8 +262,7 @@ class BaseRunner(ABC):
                         job_status_result = self.get_job_status(job)
                         if not job_status_result.is_successful:
                             error_message = (
-                                f"Job {job.id} for test {job.test_run.name} failed: "
-                                f"{job_status_result.error_message}"
+                                f"Job {job.id} for test {job.test_run.name} failed: {job_status_result.error_message}"
                             )
                             logging.error(error_message)
                         successful_jobs_count += 1
@@ -293,7 +291,7 @@ class BaseRunner(ABC):
         """
         logging.info(
             f"Job completed: {completed_job.test_run.name} "
-            f"(iteration {completed_job.test_run.current_iteration+1} of {completed_job.test_run.iterations})"
+            f"(iteration {completed_job.test_run.current_iteration + 1} of {completed_job.test_run.iterations})"
         )
 
         self.jobs.remove(completed_job)
