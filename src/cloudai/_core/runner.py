@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import argparse
 import asyncio
 import copy
 import datetime
@@ -171,40 +170,3 @@ class Runner:
         ]
         for sig in signals:
             signal.signal(sig, signal_handler)
-
-    def handle_dse_job(self, args: argparse.Namespace):
-        """Handle DSE (Design Space Exploration) jobs."""
-        from cloudai._core.configurator.cloudai_gym import CloudAIGymEnv
-
-        registry = Registry()
-
-        for tr in self.runner.test_scenario.test_runs:
-            test_run = copy.deepcopy(tr)
-            env = CloudAIGymEnv(test_run=test_run, runner=self)
-            agent_type = test_run.test.test_definition.agent
-
-            agent_class = registry.agents_map.get(agent_type)
-            if agent_class is None:
-                logging.error(
-                    f"No agent available for type: {agent_type}. Please make sure {agent_type} "
-                    f"is a valid agent type. Available agents: {registry.agents_map.keys()}"
-                )
-                continue
-
-            agent = agent_class(env)
-            for step in range(agent.max_steps):
-                result = agent.select_action()
-                if result is None:
-                    break
-                step, action = result
-                env.test_run.step = step
-                observation, reward, done, info = env.step(action)
-                feedback = {"trial_index": step, "value": reward}
-                agent.update_policy(feedback)
-                logging.info(f"Step {step}: Observation: {observation}, Reward: {reward}")
-
-    def handle_non_dse_job(self, args: argparse.Namespace) -> None:
-        """Handle non-DSE jobs."""
-        asyncio.run(self.run())
-        logging.info(f"All test scenario results stored at: {self.runner.scenario_root}")
-        logging.info("All jobs are complete.")
