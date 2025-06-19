@@ -14,14 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from cloudai._core.configurator.cloudai_gym import CloudAIGymEnv
-from cloudai._core.runner import Runner
-from cloudai._core.test_scenario import TestRun, TestScenario
-from cloudai.systems import SlurmSystem
+from cloudai.configurator import CloudAIGymEnv, GridSearchAgent
+from cloudai.core import Runner, Test, TestRun, TestScenario, TestTemplateStrategy
+from cloudai.systems.slurm import SlurmSystem
 from cloudai.workloads.nemo_run import (
     Data,
     NeMoRunCmdArgs,
@@ -29,68 +28,57 @@ from cloudai.workloads.nemo_run import (
     Trainer,
     TrainerStrategy,
 )
+from cloudai.workloads.nemo_run.report_generation_strategy import NeMoRunReportGenerationStrategy
 
 
 @pytest.fixture
-def setup_env(slurm_system: SlurmSystem):
-    test_run = MagicMock(spec=TestRun)
-    test_scenario = MagicMock(spec=TestScenario)
-
-    cmd_args = NeMoRunCmdArgs(
-        docker_image_url="https://docker/url",
-        task="some_task",
-        recipe_name="some_recipe",
-        trainer=Trainer(
-            max_steps=[1000, 2000],
-            val_check_interval=[100, 200],
-            num_nodes=[1, 2],
-            strategy=TrainerStrategy(
-                tensor_model_parallel_size=[1, 2],
-                pipeline_model_parallel_size=[1, 2],
-                context_parallel_size=[2, 4],
-            ),
-        ),
-        data=Data(
-            micro_batch_size=[1, 2],
-        ),
+def nemorun() -> NeMoRunTestDefinition:
+    return NeMoRunTestDefinition(
+        name="NemoModel",
+        description="Nemo Model",
+        test_template_name="nemo_template",
+        cmd_args=NeMoRunCmdArgs(docker_image_url="https://docker/url", task="some_task", recipe_name="some_recipe"),
     )
 
-    test_definition = NeMoRunTestDefinition(
-        name="NemoModel", description="Nemo Model", test_template_name="nemo_template", cmd_args=cmd_args
+
+@pytest.fixture
+def setup_env(slurm_system: SlurmSystem, nemorun: NeMoRunTestDefinition) -> tuple[TestRun, Runner]:
+    tdef = nemorun.model_copy(deep=True)
+    tdef.cmd_args.trainer = Trainer(
+        max_steps=[1000, 2000],
+        val_check_interval=[100, 200],
+        strategy=TrainerStrategy(
+            tensor_model_parallel_size=[1, 2],
+            pipeline_model_parallel_size=[1, 2],
+            context_parallel_size=[2, 4],
+        ),
+    )
+    tdef.cmd_args.data = Data(micro_batch_size=[1, 2])
+    tdef.agent_metrics = ["default"]
+
+    mock_command_gen = MagicMock()
+    mock_command_gen.gen_srun_command.return_value = "srun mock command"
+    mock_command_gen.generate_test_command.return_value = ["python", "run.py", "--arg", "value"]
+
+    test_template_mock = MagicMock()
+    test_template_mock.command_gen_strategy = mock_command_gen
+
+    test_run = TestRun(
+        name="mock_test_run",
+        test=Test(tdef, test_template=test_template_mock),
+        num_nodes=1,
+        nodes=[],
+        reports={NeMoRunReportGenerationStrategy},
     )
 
-    test_run.test = MagicMock()
-    test_run.test.test_definition = test_definition
+    test_scenario = TestScenario(name="mock_test_scenario", test_runs=[test_run])
+    test_run.output_path = (
+        slurm_system.output_path / test_scenario.name / test_run.name / f"{test_run.current_iteration}"
+    )
 
-    test_run.name = "mock_test_run"
-    test_scenario.name = "mock_test_scenario"
-    test_scenario.test_runs = [test_run]
-
-    runner = Runner(mode="run", system=slurm_system, test_scenario=test_scenario)
+    runner = Runner(mode="dry-run", system=slurm_system, test_scenario=test_scenario)
 
     return test_run, runner
-
-
-def test_action_space_nemo(setup_env):
-    test_run, runner = setup_env
-    env = CloudAIGymEnv(test_run=test_run, runner=runner)
-    action_space = env.define_action_space()
-
-    expected_action_space = {
-        "trainer.max_steps": 2,
-        "trainer.val_check_interval": 2,
-        "trainer.num_nodes": 2,
-        "trainer.strategy.tensor_model_parallel_size": 2,
-        "trainer.strategy.pipeline_model_parallel_size": 2,
-        "trainer.strategy.context_parallel_size": 2,
-        "trainer.strategy.virtual_pipeline_model_parallel_size": 1,
-        "data.micro_batch_size": 2,
-    }
-
-    relevant_action_space = {key: action_space[key] for key in expected_action_space}
-    assert set(relevant_action_space.keys()) == set(expected_action_space.keys())
-    for key in expected_action_space:
-        assert len(relevant_action_space[key]) == expected_action_space[key]
 
 
 def test_observation_space(setup_env):
@@ -103,167 +91,188 @@ def test_observation_space(setup_env):
     assert observation_space == expected_observation_space
 
 
-def test_get_observation(tmp_path, setup_env):
+@pytest.mark.parametrize(
+    "reward_function,test_cases",
+    [
+        (
+            "inverse",
+            [
+                ([0.34827126874999986], pytest.approx(2.871, 0.001)),
+                ([0.0], 0.0),
+                ([], 0.0),
+                ([2.0, 2.0], 0.5),
+            ],
+        ),
+        (
+            "negative",
+            [
+                ([2.0], -2.0),
+                ([-1.5], 1.5),
+                ([0.0], 0.0),
+                ([], 0.0),
+            ],
+        ),
+        (
+            "identity",
+            [
+                ([2.0], 2.0),
+                ([-1.5], -1.5),
+                ([0.0], 0.0),
+                ([], 0.0),
+            ],
+        ),
+    ],
+)
+def test_compute_reward(reward_function, test_cases):
+    test_run = MagicMock()
+    test_run.test.test_definition.agent_reward_function = reward_function
+    env = CloudAIGymEnv(test_run=test_run, runner=MagicMock())
+
+    for input_value, expected_reward in test_cases:
+        reward = env.compute_reward(input_value)
+        assert reward == expected_reward
+
+
+def test_compute_reward_invalid():
+    test_run = MagicMock()
+    test_run.test.test_definition.agent_reward_function = "nonexistent"
+
+    with pytest.raises(KeyError) as exc_info:
+        CloudAIGymEnv(test_run=test_run, runner=MagicMock())
+
+    assert "Reward function 'nonexistent' not found" in str(exc_info.value)
+    assert "Available functions: ['inverse', 'negative', 'identity']" in str(exc_info.value)
+
+
+def test_tr_output_path(setup_env: tuple[TestRun, Runner]):
     test_run, runner = setup_env
+    test_run.test.test_definition.cmd_args.data.global_batch_size = 8  # avoid constraint check failure
     env = CloudAIGymEnv(test_run=test_run, runner=runner)
+    agent = GridSearchAgent(env)
 
-    output_path = tmp_path / "output" / "mock_test_scenario"
-    output_path.mkdir(parents=True, exist_ok=True)
-    subdir = output_path / "0"
-    subdir.mkdir(parents=True, exist_ok=True)
-    report_file_path = subdir / "0" / "report.txt"
-    report_file_path.parent.mkdir(parents=True, exist_ok=True)
-    report_file_path.write_text("Average: 0.34827126874999986\n")
+    _, action = agent.select_action()
+    env.test_run.step = 42
+    env.step(action)
 
-    with patch.object(env, "parse_report", return_value=[0.34827126874999986]):
-        observation = env.get_observation(action={})
-        assert observation == [0.34827126874999986]
+    assert env.test_run.output_path.name == "42"
 
 
-def test_parse_report(tmp_path):
-    report_content = """Min: 0.342734
-Max: 0.355174
-Average: 0.34827126874999986
-Median: 0.347785
-Stdev: 0.0031025735345648264
-"""
-    report_file = tmp_path / "report.txt"
-    report_file.write_text(report_content)
-
-    env = CloudAIGymEnv(test_run=MagicMock(), runner=MagicMock())
-    observation = env.parse_report(tmp_path)
-    assert observation == [0.34827126874999986]
-
-
-def test_compute_reward():
-    env = CloudAIGymEnv(test_run=MagicMock(), runner=MagicMock())
-
-    observation = [0.34827126874999986]
-    reward = env.compute_reward(observation)
-    assert reward == pytest.approx(2.871, 0.001)
-
-    observation = [0.0]
-    reward = env.compute_reward(observation)
-    assert reward == 0.0
-
-    observation = []
-    reward = env.compute_reward(observation)
-    assert reward == 0.0
-
-
-def test_populate_action_space():
-    env = CloudAIGymEnv(test_run=MagicMock(), runner=MagicMock())
-    action_space = {}
-    cmd_args = NeMoRunCmdArgs(
-        docker_image_url="https://docker/url",
-        task="some_task",
-        recipe_name="some_recipe",
-        trainer=Trainer(
-            num_nodes=[1, 2],
-            strategy=TrainerStrategy(
-                tensor_model_parallel_size=[1, 2],
-                unknown_nested=[1, 2],  # type: ignore
-            ),
-        ),
-        data=Data(
-            micro_batch_size=[1, 2],
-        ),
+def test_action_space(nemorun: NeMoRunTestDefinition, setup_env: tuple[TestRun, Runner]):
+    tr, _ = setup_env
+    nemorun.cmd_args.trainer = Trainer(
+        max_steps=[1000, 2000], strategy=TrainerStrategy(tensor_model_parallel_size=[1, 2])
     )
-    extra_env_args = {"extra_param_1": [10, 20]}
-    combined_dict = {**cmd_args.model_dump(), **extra_env_args}
-    env.populate_action_space("", combined_dict, action_space)
+    nemorun.cmd_args.data.micro_batch_size = [1, 2]
+    nemorun.extra_env_vars["DSE_VAR"] = ["1", "2"]
 
-    assert action_space["trainer.num_nodes"] == [1, 2]
-    assert action_space["trainer.strategy.tensor_model_parallel_size"] == [1, 2]
-    assert action_space["trainer.strategy.unknown_nested"] == [1, 2]
-    assert action_space["data.micro_batch_size"] == [1, 2]
-    assert action_space["extra_param_1"] == [10, 20]
+    tr.test.test_definition = nemorun
+    tr.num_nodes = [1, 2]
 
+    action_space = tr.param_space
 
-def test_populate_action_space_cmd_args_list():
-    env = CloudAIGymEnv(test_run=MagicMock(), runner=MagicMock())
-    action_space = {}
-    cmd_args = NeMoRunCmdArgs(
-        docker_image_url="https://docker/url",
-        task="some_task",
-        recipe_name="some_recipe",
-        trainer=Trainer(
-            num_nodes=[1, 2],
-            strategy=TrainerStrategy(
-                tensor_model_parallel_size=[1, 2],
-            ),
-        ),
-        data=Data(
-            micro_batch_size=[1, 2],
-        ),
+    assert len(action_space) == 5
+    assert action_space["data.micro_batch_size"] == nemorun.cmd_args.data.micro_batch_size
+    assert action_space["trainer.max_steps"] == nemorun.cmd_args.trainer.max_steps
+    assert (
+        action_space["trainer.strategy.tensor_model_parallel_size"]
+        == nemorun.cmd_args.trainer.strategy.tensor_model_parallel_size
     )
-    extra_env_args = {
-        "extra_param_1": [10],
-    }
-    combined_dict = {**cmd_args.model_dump(), **extra_env_args}
-    env.populate_action_space("", combined_dict, action_space)
-
-    assert action_space["trainer.num_nodes"] == [1, 2]
-    assert action_space["trainer.strategy.tensor_model_parallel_size"] == [1, 2]
-    assert action_space["data.micro_batch_size"] == [1, 2]
-    assert action_space["extra_param_1"] == [10]
+    assert action_space["extra_env_vars.DSE_VAR"] == nemorun.extra_env_vars["DSE_VAR"]
+    assert action_space["NUM_NODES"] == tr.num_nodes
 
 
-def test_populate_action_space_extra_env_args_list():
-    env = CloudAIGymEnv(test_run=MagicMock(), runner=MagicMock())
-    action_space = {}
-    cmd_args = NeMoRunCmdArgs(
-        docker_image_url="https://docker/url",
-        task="some_task",
-        recipe_name="some_recipe",
-        trainer=Trainer(
-            num_nodes=1,
-            strategy=TrainerStrategy(
-                tensor_model_parallel_size=1,
-            ),
-        ),
-        data=Data(
-            micro_batch_size=1,
-        ),
+@pytest.mark.parametrize("num_nodes", (1, [1, 2], [3]))
+def test_all_combinations(nemorun: NeMoRunTestDefinition, setup_env: tuple[TestRun, Runner], num_nodes: int):
+    tr, _ = setup_env
+    nemorun.cmd_args.trainer = Trainer(max_steps=[1000], strategy=TrainerStrategy(tensor_model_parallel_size=[1, 2]))
+    nemorun.extra_env_vars["DSE_VAR"] = ["1", "2", "3"]
+    tr.test.test_definition = nemorun
+    tr.num_nodes = num_nodes
+
+    expected_num_combinations = 6
+    if isinstance(num_nodes, list):
+        expected_num_combinations *= len(num_nodes)
+
+    real_combinations = tr.all_combinations
+    assert len(real_combinations) == expected_num_combinations
+    _combinations = [
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 1, "extra_env_vars.DSE_VAR": "1"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 1, "extra_env_vars.DSE_VAR": "1"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 1, "extra_env_vars.DSE_VAR": "2"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 1, "extra_env_vars.DSE_VAR": "2"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 1, "extra_env_vars.DSE_VAR": "3"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 1, "extra_env_vars.DSE_VAR": "3"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 2, "extra_env_vars.DSE_VAR": "1"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 2, "extra_env_vars.DSE_VAR": "1"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 2, "extra_env_vars.DSE_VAR": "2"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 2, "extra_env_vars.DSE_VAR": "2"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 2, "extra_env_vars.DSE_VAR": "3"},
+        {"trainer.max_steps": 1000, "trainer.strategy.tensor_model_parallel_size": 2, "extra_env_vars.DSE_VAR": "3"},
+    ]
+    expected_combinations = []
+    for param_set in _combinations:
+        if isinstance(num_nodes, list):
+            for nnodes in num_nodes:
+                expected_combinations.append(param_set | {"NUM_NODES": nnodes})
+        else:
+            expected_combinations.append(param_set)
+
+    for expected in expected_combinations:
+        assert expected in real_combinations, f"Expected {expected} in all_combinations"
+
+
+def test_all_combinations_non_dse(nemorun: NeMoRunTestDefinition, setup_env: tuple[TestRun, Runner]):
+    tr, _ = setup_env
+    tr.test.test_definition = nemorun
+    assert len(tr.all_combinations) == 0
+
+
+def test_all_combinations_non_dse_but_with_space(nemorun: NeMoRunTestDefinition, setup_env: tuple[TestRun, Runner]):
+    tr, _ = setup_env
+    tr.test.test_definition = nemorun
+    with patch.object(type(tr.test.test_definition), "is_dse_job", new_callable=PropertyMock(return_value=True)):
+        assert len(tr.all_combinations) == 0
+
+
+def test_all_combinations_dse_on_num_nodes(nemorun: NeMoRunTestDefinition, setup_env: tuple[TestRun, Runner]):
+    tr, _ = setup_env
+    tr.test.test_definition = NeMoRunTestDefinition(
+        name="NemoModel",
+        description="Nemo Model",
+        test_template_name="nemo_template",
+        cmd_args=NeMoRunCmdArgs(docker_image_url="https://docker/url", task="some_task", recipe_name="some_recipe"),
     )
-    extra_env_args = {
-        "extra_param_1": [10, 20],
-    }
-    combined_dict = {**cmd_args.model_dump(), **extra_env_args}
-    env.populate_action_space("", combined_dict, action_space)
-
-    assert action_space["extra_param_1"] == [10, 20]
+    tr.num_nodes = [1, 2]
+    assert len(tr.all_combinations) == 2
 
 
-def test_update_test_run_obj():
-    env = CloudAIGymEnv(test_run=MagicMock(), runner=MagicMock())
+@pytest.mark.parametrize("num_nodes", (1, [1, 2], [3]))
+def test_params_set(setup_env: tuple[TestRun, Runner], num_nodes: int):
+    tr, _ = setup_env
+    tr.num_nodes = num_nodes
+    assert len(tr.all_combinations) > 1
+    for action in tr.all_combinations:
+        new_tr = tr.apply_params_set(action)
+        cmd_args = TestTemplateStrategy._flatten_dict(new_tr.test.test_definition.cmd_args.model_dump())
+        for key, value in action.items():
+            if key.startswith("extra_env_vars."):
+                assert new_tr.test.test_definition.extra_env_vars[key[len("extra_env_vars.") :]] == value
+            elif key == "NUM_NODES":
+                assert new_tr.num_nodes == value
+            else:
+                assert cmd_args[key] == value
 
-    cmd_args = NeMoRunCmdArgs(
-        docker_image_url="https://docker/url",
-        task="some_task",
-        recipe_name="some_recipe",
-        trainer=Trainer(
-            num_nodes=[1, 2],
-            strategy=TrainerStrategy(
-                tensor_model_parallel_size=[1, 2],
-                pipeline_model_parallel_size=[1, 2],
-                context_parallel_size=[2, 4],
-            ),
-        ),
-        data=Data(
-            micro_batch_size=[1, 2],
-        ),
-    )
-    obj = cmd_args.model_dump()
-    env.update_test_run_obj(obj, "trainer.strategy.tensor_model_parallel_size", 2)
-    assert obj["trainer"]["strategy"]["tensor_model_parallel_size"] == 2
 
-    env.update_test_run_obj(cmd_args, "trainer.strategy.tensor_model_parallel_size", 2)
-    assert cmd_args.trainer.strategy.tensor_model_parallel_size == 2
+def test_params_set_validated(setup_env: tuple[TestRun, Runner], nemorun: NeMoRunTestDefinition):
+    tr, _ = setup_env
+    nemorun.cmd_args.trainer = Trainer(max_steps=[1000])
+    tr.test.test_definition = nemorun
+    action_space = tr.param_space
+    action_space["trainer.max_steps"] = "invalid"
 
-    obj = cmd_args.model_dump()
-    env.update_test_run_obj(obj, "trainer.num_nodes", [3, 4])
-    assert obj["trainer"]["num_nodes"] == [3, 4]
+    with pytest.raises(UserWarning) as excinfo:
+        tr.apply_params_set(action_space)
 
-    env.update_test_run_obj(cmd_args, "trainer.num_nodes", [3, 4])
-    assert cmd_args.trainer.num_nodes == [3, 4]
+    assert excinfo.type is UserWarning
+    assert "Pydantic serializer warnings:" in str(excinfo.value)
+    assert "but got `str`" in str(excinfo.value)

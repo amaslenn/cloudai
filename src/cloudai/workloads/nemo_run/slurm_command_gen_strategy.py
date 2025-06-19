@@ -16,40 +16,49 @@
 
 
 import logging
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Union, cast
 
-from cloudai import TestRun
-from cloudai.systems.slurm.strategy import SlurmCommandGenStrategy
-from cloudai.workloads.nemo_run import NeMoRunTestDefinition
+from cloudai.core import TestRun
+from cloudai.systems.slurm import SlurmCommandGenStrategy
+
+from .nemo_run import NeMoRunTestDefinition
 
 
 class NeMoRunSlurmCommandGenStrategy(SlurmCommandGenStrategy):
     """Command generation strategy for NeMo 2.0 on Slurm systems."""
 
-    def _parse_slurm_args(
-        self,
-        job_name_prefix: str,
-        env_vars: Dict[str, Union[str, List[str]]],
-        cmd_args: Dict[str, Union[str, List[str]]],
-        tr: TestRun,
-    ) -> Dict[str, Any]:
-        base_args = super()._parse_slurm_args(job_name_prefix, env_vars, cmd_args, tr)
-
+    def image_path(self, tr: TestRun) -> str | None:
         tdef: NeMoRunTestDefinition = cast(NeMoRunTestDefinition, tr.test.test_definition)
-        base_args.update({"image_path": tdef.docker_image.installed_path})
+        return str(tdef.docker_image.installed_path)
 
-        return base_args
+    def _gen_srun_command(
+        self, env_vars: Dict[str, str | List[str]], cmd_args: Dict[str, str | List[str]], tr: TestRun
+    ) -> str:
+        tdef: NeMoRunTestDefinition = cast(NeMoRunTestDefinition, tr.test.test_definition)
+        self._set_additional_env_vars(env_vars, tdef)
+        return super()._gen_srun_command(env_vars, cmd_args, tr)
+
+    def _set_additional_env_vars(self, env_vars: Dict[str, Union[str, List[str]]], tdef: NeMoRunTestDefinition):
+        """Set environment variables based on NeMoRunTestDefinition."""
+        env_vars["CLOUDAI_NEMO_TASK"] = tdef.cmd_args.task
+        env_vars["CLOUDAI_NEMO_RECIPE"] = tdef.cmd_args.recipe_name
+
+        pipeline_model_parallel_size = tdef.cmd_args.trainer.strategy.pipeline_model_parallel_size
+        if isinstance(pipeline_model_parallel_size, list):
+            pipeline_model_parallel_size = pipeline_model_parallel_size[0]
+        pipeline_model_parallel_size = int(pipeline_model_parallel_size)
+
+        if pipeline_model_parallel_size > 1:
+            logging.debug("Setting NCCL_P2P_NET_CHUNKSIZE to 2097152 as pipeline_model_parallel_size is greater than 1")
+            env_vars["NCCL_P2P_NET_CHUNKSIZE"] = "2097152"
 
     def _run_script(self, tr: TestRun) -> Path:
         tdef: NeMoRunTestDefinition = cast(NeMoRunTestDefinition, tr.test.test_definition)
         return tdef.script.installed_path
 
     def _container_mounts(self, tr: TestRun) -> List[str]:
-        nemorun_ws = tr.output_path / "nemorun-workspace"
-        nemorun_ws.mkdir(exist_ok=True)
-        return [f"{self._run_script(tr).parent.absolute()}:/cloudai_workspace", f"{nemorun_ws.absolute()}:/workspace"]
+        return [f"{self._run_script(tr).parent.absolute()}:/cloudai_workspace"]
 
     def flatten_dict(self, d: dict[str, str], parent_key: str = "", sep: str = "."):
         items = []
@@ -70,37 +79,63 @@ class NeMoRunSlurmCommandGenStrategy(SlurmCommandGenStrategy):
                 else:
                     command.append(f"{key}={value}")
 
+    def _validate_recipe_name(self, recipe_name: str) -> str:
+        """Validate the recipe name against the supported list."""
+        supported_recipes = [
+            "cloudai_llama3_8b_recipe",
+            "cloudai_llama3_70b_recipe",
+            "cloudai_llama3_405b_recipe",
+            "cloudai_nemotron3_8b_recipe",
+            "cloudai_nemotron4_15b_recipe",
+            "cloudai_nemotron4_340b_recipe",
+        ]
+
+        if recipe_name not in supported_recipes:
+            logging.warning(
+                f"Using default {recipe_name} in Nemo2.0. "
+                "Passing advance CLI options (e.g., factory functions) might not be fully supported in Nemo-Run CLI."
+            )
+
+        return recipe_name
+
     def generate_test_command(
         self, env_vars: Dict[str, Union[str, List[str]]], cmd_args: Dict[str, Union[str, List[str]]], tr: TestRun
     ) -> List[str]:
         tdef: NeMoRunTestDefinition = cast(NeMoRunTestDefinition, tr.test.test_definition)
+
+        tdef.cmd_args.data.num_train_samples = tdef.update_num_train_samples
 
         cmd_args_dict = tdef.cmd_args.model_dump()
 
         for non_cmd_arg in {"docker_image_url", "num_layers", "task", "recipe_name"}:
             cmd_args_dict.pop(non_cmd_arg)
 
-        command = [
-            "python",
-            f"/cloudai_workspace/{self._run_script(tr).name}",
-            "--factory",
-            tdef.cmd_args.recipe_name,
-            "-y",
-        ]
+        recipe_name = self._validate_recipe_name(tdef.cmd_args.recipe_name)
 
-        num_nodes, _ = self.system.get_nodes_by_spec(tr.num_nodes, tr.nodes)
+        command = ["python", f"/cloudai_install/{self._run_script(tr).name}", "--factory", recipe_name, "-y"]
 
-        if cmd_args_dict["trainer"]["num_nodes"] and cmd_args_dict["trainer"]["num_nodes"] > num_nodes:
-            err = (
-                f"Mismatch in num_nodes: {num_nodes} vs {cmd_args_dict['trainer']['num_nodes']}. "
-                "trainer.num_nodes should be less than or equal to the number of nodes specified "
-                "in the test scenario."
+        num_nodes, _ = self.system.get_nodes_by_spec(tr.nnodes, tr.nodes)
+
+        if tdef.cmd_args.trainer.num_nodes is not None and tdef.cmd_args.trainer.num_nodes > num_nodes:
+            logging.warning(
+                f"Mismatch in num_nodes: real {num_nodes} < requested by test {tdef.cmd_args.trainer.num_nodes}. "
+                "cmd_args.trainer.num_nodes value will be overridden to the actual number of nodes."
             )
 
-            logging.error(err)
-            sys.exit(1)
-
         cmd_args_dict["trainer"]["num_nodes"] = num_nodes
+
+        if self.system.gpus_per_node:
+            trainer_config = cmd_args_dict.get("trainer", {})
+            if "devices" in trainer_config:
+                user_devices = trainer_config["devices"]
+                if user_devices != self.system.gpus_per_node:
+                    logging.warning(
+                        f"User-specified trainer.devices ({user_devices}) differs from "
+                        f"system gpus_per_node ({self.system.gpus_per_node})"
+                    )
+            cmd_args_dict["trainer"]["devices"] = self.system.gpus_per_node
+        else:
+            logging.debug("SlurmSystem.gpus_per_node is not set. Skipping trainer.devices injection.")
 
         self.append_flattened_dict("", cmd_args_dict, command)
 

@@ -13,9 +13,9 @@
    "cell_type": "markdown",
    "metadata": {},
    "source": [
-    "| Test | Status |\n",
+    "| Test | Output dir |\n",
     "|------|--------|\n",
-    "{% for tr in test_scenario.test_runs %}{% for iter in range(tr.iterations) %}| {{ tr.name }}.{{ iter }} | {% if tr.name + iter|string in tr_results %}[logs]({{ tr_results[tr.name + iter|string]['logs_path'] }}){% else %}no logs{% endif %} |\n{% endfor %}{% endfor %}"
+    "{% for tr in tr_results %} | {{ tr.name }} | {{ tr.output_path }} | {% endfor %}"
    ]
   }
  ],

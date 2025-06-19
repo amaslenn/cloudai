@@ -19,8 +19,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cloudai import Test, TestRun, TestTemplate
-from cloudai.systems import SlurmSystem
+from cloudai.core import Test, TestRun, TestTemplate
+from cloudai.systems.slurm import SlurmSystem
 from cloudai.workloads.jax_toolbox import (
     GPTCmdArgs,
     GPTTestDefinition,
@@ -68,7 +68,7 @@ class TestJaxToolboxSlurmCommandGenStrategy:
         test_def = request.getfixturevalue(test_fixture)
         slurm_system.output_path.mkdir(parents=True, exist_ok=True)
 
-        test = Test(test_definition=test_def, test_template=TestTemplate(slurm_system, "name"))
+        test = Test(test_definition=test_def, test_template=TestTemplate(slurm_system))
         test_run = TestRun(
             test=test,
             num_nodes=1,

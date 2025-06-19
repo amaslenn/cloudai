@@ -16,7 +16,8 @@
 
 from typing import Literal, Optional, Union
 
-from cloudai import CmdArgs, DockerImage, Installable, TestDefinition
+from cloudai.core import DockerImage, Installable
+from cloudai.models.workload import CmdArgs, TestDefinition
 
 
 class NCCLCmdArgs(CmdArgs):
@@ -95,6 +96,7 @@ class NCCLCmdArgs(CmdArgs):
     check: Union[int, list[int]] = 1
     blocking: Union[int, list[int]] = 0
     cudagraph: Union[int, list[int]] = 0
+    stepfactor: Optional[Union[int, list[int]]] = None
 
 
 class NCCLTestDefinition(TestDefinition):

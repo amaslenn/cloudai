@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,11 +21,9 @@ from .test_template_strategy import TestTemplateStrategy
 
 
 class CommandGenStrategy(TestTemplateStrategy, ABC):
-    """
-    Abstract base class defining the interface for command generation strategies across different system environments.
+    """Abstract base class defining the interface for command generation strategies across different systems."""
 
-    It specifies how to generate execution commands based on system and test parameters.
-    """
+    TEST_RUN_DUMP_FILE_NAME: str = "test-run.toml"
 
     @abstractmethod
     def gen_exec_command(self, tr: TestRun) -> str:
@@ -41,26 +39,13 @@ class CommandGenStrategy(TestTemplateStrategy, ABC):
         pass
 
     @abstractmethod
-    def gen_srun_command(self, tr: TestRun) -> str:
+    def store_test_run(self, tr: TestRun) -> None:
         """
-        Generate the Slurm srun command for a test based on the given parameters.
+        Store the test run information in output folder.
+
+        Only at command generation time, CloudAI has all the information to store the test run.
 
         Args:
-            tr (TestRun): Contains the test and its run-specific configurations.
-
-        Returns:
-            str: The generated Slurm srun command.
+            tr (TestRun): The test run object to be stored.
         """
         pass
-
-    def gen_srun_success_check(self, tr: TestRun) -> str:
-        """
-        Generate the Slurm success check command to verify if a test run was successful.
-
-        Args:
-            tr (TestRun): Contains the test and its run-specific configurations.
-
-        Returns:
-            str: The generated command to check the success of the test run.
-        """
-        return ""

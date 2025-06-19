@@ -20,11 +20,19 @@ from typing import Dict, List
 from unittest.mock import Mock, patch
 
 import pytest
+import toml
 
-from cloudai import BaseJob
-from cloudai.systems import SlurmSystem
-from cloudai.systems.slurm import SlurmNode, SlurmNodeState
-from cloudai.systems.slurm.slurm_system import parse_node_list
+from cloudai.core import BaseJob, Test, TestRun, TestTemplate
+from cloudai.models.scenario import ReportConfig
+from cloudai.systems.slurm import (
+    SlurmCommandGenStrategy,
+    SlurmNode,
+    SlurmNodeState,
+    SlurmSystem,
+    parse_node_list,
+)
+from cloudai.systems.slurm.slurm_metadata import SlurmStepMetadata
+from cloudai.workloads.nccl_test import NCCLCmdArgs, NCCLTestDefinition
 
 
 def test_parse_squeue_output(slurm_system):
@@ -93,11 +101,11 @@ def test_parse_sinfo_output(slurm_system: SlurmSystem) -> None:
         assert node.state == SlurmNodeState.IDLE
 
 
-@patch("cloudai.systems.SlurmSystem.fetch_command_output")
+@patch("cloudai.systems.slurm.SlurmSystem.fetch_command_output")
 def test_update_with_mocked_outputs(mock_fetch_command_output: Mock, slurm_system: SlurmSystem):
     mock_fetch_command_output.side_effect = [
         ("node-033|user1", ""),
-        ("PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\n" "main up infinite 1 idle node-033", ""),
+        ("PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\nmain up infinite 1 idle node-033", ""),
     ]
 
     parts_by_name = {part.name: part for part in slurm_system.partitions}
@@ -111,7 +119,7 @@ def test_update_with_mocked_outputs(mock_fetch_command_output: Mock, slurm_syste
 
     mock_fetch_command_output.side_effect = [
         ("node01|root", ""),
-        ("PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\n" "backup up infinite 1 allocated node01", ""),
+        ("PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\nbackup up infinite 1 allocated node01", ""),
     ]
 
     slurm_system.update()
@@ -195,9 +203,9 @@ def test_allocate_nodes_max_avail(slurm_system: SlurmSystem, grouped_nodes: dict
     ]
     returned_node_names = [node.name for node in available_nodes]
 
-    assert set(returned_node_names) == set(
-        expected_node_names
-    ), "Should return all available nodes except ALLOCATED nodes"
+    assert set(returned_node_names) == set(expected_node_names), (
+        "Should return all available nodes except ALLOCATED nodes"
+    )
     allocated_node_name = grouped_nodes[SlurmNodeState.ALLOCATED][0].name
     assert allocated_node_name not in returned_node_names, "ALLOCATED node should not be included"
 
@@ -266,12 +274,13 @@ def test_is_job_completed(stdout: str, stderr: str, is_completed: bool, slurm_sy
     "stdout,stderr,is_running",
     [
         ("RUNNING", "", True),
-        ("PENDING", "", True),
+        ("PENDING", "", False),
         ("COMPLETED", "", False),
         ("FAILED", "", False),
         ("CANCELLED", "", False),
         ("TIMEOUT", "", False),
         ("", "error", False),
+        ("   RUNNING \n   RUNNING \n   RUNNING \n COMPLETED \n    FAILED \n   RUNNING \n", "", True),
     ],
 )
 def test_is_job_running(stdout: str, stderr: str, is_running: bool, slurm_system: SlurmSystem):
@@ -358,3 +367,249 @@ class TestParseNodes:
     def test_colon_invalid_syntax(self, slurm_system: SlurmSystem, spec: str):
         with pytest.raises(ValueError):
             slurm_system.parse_nodes([spec])
+
+
+class TestGetNodesBySpec:
+    def test_empty_nodes_list(self, slurm_system: SlurmSystem):
+        num_nodes, node_list = slurm_system.get_nodes_by_spec(3, [])
+        assert num_nodes == 3
+        assert node_list == []
+
+    @pytest.mark.parametrize(
+        "in_nnodes,in_nodes,exp_nnodes,exp_nodes",
+        [
+            (2, ["node0[1-3]"], 3, ["node01", "node02", "node03"]),
+            (4, ["node01,node02"], 2, ["node01", "node02"]),
+            (1, ["node01,node02"], 2, ["node01", "node02"]),
+        ],
+    )
+    @patch("cloudai.systems.slurm.slurm_system.SlurmSystem.parse_nodes")
+    def test_explicit_node_names(
+        self,
+        mock_parse_nodes: Mock,
+        slurm_system: SlurmSystem,
+        in_nnodes: int,
+        in_nodes: list[str],
+        exp_nnodes: int,
+        exp_nodes: list[str],
+    ):
+        mock_parse_nodes.return_value = exp_nodes
+
+        num_nodes, node_list = slurm_system.get_nodes_by_spec(in_nnodes, in_nodes)
+
+        mock_parse_nodes.assert_called_once_with(in_nodes)
+        assert num_nodes == exp_nnodes
+        assert node_list == exp_nodes
+
+
+class ConcreteSlurmStrategy(SlurmCommandGenStrategy):
+    def _container_mounts(self, tr: TestRun) -> list[str]:
+        return []
+
+    def generate_test_command(self, env_vars, cmd_args, tr):
+        return ["test_command"]
+
+    def job_name(self, tr: TestRun) -> str:
+        return "job_name"
+
+
+@pytest.fixture
+def test_run(slurm_system: SlurmSystem) -> TestRun:
+    test_run = TestRun(
+        name="test_run",
+        test=Test(
+            test_definition=NCCLTestDefinition(
+                name="test_run", description="test_run", test_template_name="nccl", cmd_args=NCCLCmdArgs()
+            ),
+            test_template=TestTemplate(slurm_system),
+        ),
+        num_nodes=2,
+        nodes=["main:group1:2"],
+        output_path=slurm_system.output_path,
+    )
+
+    test_run.output_path.mkdir(parents=True, exist_ok=True)
+
+    return test_run
+
+
+class TestSlurmCommandGenStrategyCache:
+    @patch("cloudai.systems.slurm.SlurmSystem.get_nodes_by_spec")
+    def test_strategy_caching(self, mock_get_nodes: Mock, slurm_system: SlurmSystem, test_run: TestRun):
+        mock_get_nodes.return_value = (2, ["node01", "node02"])
+
+        strategy = ConcreteSlurmStrategy(slurm_system, {})
+
+        # First call to get nodes
+        res = strategy.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 1
+        assert res == (2, ["node01", "node02"])
+
+        # Second call with same parameters should use cache
+        res = strategy.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 1
+        assert res == (2, ["node01", "node02"])
+
+        # Different node spec should call get_nodes_by_spec again
+        test_run.num_nodes = 1
+        test_run.nodes = []
+        strategy.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 2
+
+        test_run.num_nodes = 2
+        test_run.nodes = ["node01", "node03"]
+        strategy.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 3
+
+    @patch("cloudai.systems.slurm.SlurmSystem.get_nodes_by_spec")
+    def test_per_test_isolation(self, mock_get_nodes: Mock, slurm_system: SlurmSystem, test_run: TestRun):
+        mock_get_nodes.side_effect = [(2, ["node01", "node02"]), (2, ["node03", "node04"])]
+
+        # Simulate two different test cases
+        strategy1, strategy2 = ConcreteSlurmStrategy(slurm_system, {}), ConcreteSlurmStrategy(slurm_system, {})
+
+        res = strategy1.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 1
+        assert res == (2, ["node01", "node02"])
+
+        res = strategy2.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 2
+        assert res == (2, ["node03", "node04"])
+
+        assert strategy1._node_spec_cache != strategy2._node_spec_cache, "Caches should be different"
+
+    @patch("cloudai.systems.slurm.SlurmSystem.get_nodes_by_spec")
+    def test_per_iteration_isolation(self, mock_get_nodes: Mock, slurm_system: SlurmSystem, test_run: TestRun):
+        mock_get_nodes.side_effect = [(2, ["node01", "node02"]), (2, ["node03", "node04"])]
+
+        strategy = ConcreteSlurmStrategy(slurm_system, {})
+
+        res = strategy.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 1
+        assert res == (2, ["node01", "node02"])
+
+        test_run.current_iteration = 1
+        res = strategy.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 2
+        assert res == (2, ["node03", "node04"])
+
+    @patch("cloudai.systems.slurm.SlurmSystem.get_nodes_by_spec")
+    def test_per_step_isolation(self, mock_get_nodes: Mock, slurm_system: SlurmSystem, test_run: TestRun):
+        mock_get_nodes.side_effect = [(2, ["node01", "node02"]), (2, ["node03", "node04"])]
+
+        strategy = ConcreteSlurmStrategy(slurm_system, {})
+
+        res = strategy.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 1
+        assert res == (2, ["node01", "node02"])
+
+        test_run.step = 1
+        res = strategy.get_cached_nodes_spec(test_run)
+        assert mock_get_nodes.call_count == 2
+        assert res == (2, ["node03", "node04"])
+
+
+@pytest.mark.parametrize(
+    "scontrol_output,expected_support",
+    [
+        # Case 1: GresTypes includes gpu - should be supported
+        (
+            """Configuration data as of 2023-06-14T16:28:09
+GresTypes               = gpu""",
+            True,
+        ),
+        # Case 2: GresTypes is (null) - should NOT be supported
+        (
+            """Configuration data as of 2023-06-14T16:28:09
+GresTypes               = (null)""",
+            False,
+        ),
+        # Case 3: GresTypes does not include gpu - should NOT be supported
+        (
+            """Configuration data as of 2023-06-14T16:28:09
+GresTypes               = cpu""",
+            False,
+        ),
+        # Case 4: GresTypes includes multiple types including gpu - should be supported
+        (
+            """Configuration data as of 2023-06-14T16:28:09
+GresTypes               = cpu,gpu,fpga""",
+            True,
+        ),
+    ],
+)
+@patch("cloudai.systems.slurm.slurm_system.SlurmSystem.fetch_command_output")
+def test_supports_gpu_directives(
+    mock_fetch_command_output, scontrol_output: str, expected_support: bool, slurm_system: SlurmSystem
+):
+    mock_fetch_command_output.return_value = (scontrol_output, "")
+    assert slurm_system.supports_gpu_directives == expected_support
+
+
+@pytest.mark.parametrize(
+    "cache_value",
+    [True, False],
+)
+@patch("cloudai.systems.slurm.slurm_system.SlurmSystem.fetch_command_output")
+def test_supports_gpu_directives_cache(mock_fetch_command_output, cache_value: bool, slurm_system: SlurmSystem):
+    slurm_system.supports_gpu_directives_cache = cache_value
+    assert slurm_system.supports_gpu_directives is cache_value
+    mock_fetch_command_output.assert_not_called()
+
+
+@pytest.mark.parametrize("enable,expected", [("true", True), ("false", False)])
+def test_reports_spec_is_parsed(enable: str, expected: bool):
+    spec = f"""
+name = "example-cluster"
+scheduler = "slurm"
+install_path = "i"
+output_path = "r"
+default_partition = "p"
+[[partitions]]
+name = "p"
+
+[reports]
+per_test = {{ enable = {enable} }}
+"""
+    slurm = SlurmSystem.model_validate(toml.loads(spec))
+    assert slurm.reports is not None
+    assert isinstance(slurm.reports["per_test"], ReportConfig)
+    assert slurm.reports["per_test"].enable is expected
+
+
+@pytest.mark.parametrize("stdout,stderr, expected", [("", "error", None)])
+def test_get_job_status(slurm_system: SlurmSystem, stdout: str, stderr: str, expected: tuple):
+    job = BaseJob(test_run=Mock(), id=1)
+    pp = Mock()
+    pp.communicate = Mock(return_value=(stdout, stderr))
+    slurm_system.cmd_shell.execute = Mock(return_value=pp)
+
+    if stderr:
+        with pytest.raises(RuntimeError):
+            slurm_system.get_job_status(job)
+    else:
+        assert slurm_system.get_job_status(job) == expected
+
+
+sacct_output = """2623913,job,COMPLETED,0:0,2025-05-09T01:34:52,2025-05-09T01:59:27,1475,sbatch sbatch_script.sh,
+2623913.batch,batch,COMPLETED,0:0,2025-05-09T01:34:52,2025-05-09T01:59:27,1475,,
+2623913.extern,extern,COMPLETED,0:0,2025-05-09T01:34:52,2025-05-09T01:59:27,1475,,
+2623913.0,bash,COMPLETED,0:0,2025-05-09T01:35:24,2025-05-09T01:35:58,34,srun --export=ALL --mpi=pmix ...,
+2623913.1,bash,COMPLETED,0:0,2025-05-09T01:35:58,2025-05-09T01:36:16,18,srun --export=ALL --mpi=pmix ...,
+2623913.2,all_reduce_perf_mpi,COMPLETED,0:0,2025-05-09T01:36:16,2025-05-09T01:37:02,46,srun -N2 ...,
+2623913.3,all_reduce_perf_mpi,COMPLETED,0:0,2025-05-09T01:37:02,2025-05-09T01:37:59,57,srun -N2 ...,
+"""
+sacct_output2 = """2968718|job:run|COMPLETED|0:0|2025-06-16T07:40:16|2025-06-16T07:49:08|532|sbatch run_submission.sh|
+2968718.batch|batch|COMPLETED|0:0|2025-06-16T07:40:16|2025-06-16T07:49:08|532||
+2968718.extern|extern|COMPLETED|0:0|2025-06-16T07:40:16|2025-06-16T07:49:08|532||
+2968718.0|bash|COMPLETED|0:0|2025-06-16T07:40:54|2025-06-16T07:49:11|497|srun long cmd
+with
+  multiple
+  lines |
+"""
+
+
+@pytest.mark.parametrize("sacct_output,delimiter,expected_nsteps", [(sacct_output, ",", 7), (sacct_output2, "|", 4)])
+def test_slurm_job_metadata_from_sacct_output(sacct_output: str, delimiter: str, expected_nsteps: int):
+    job_metadata = SlurmStepMetadata.from_sacct_output(sacct_output, delimiter=delimiter)
+    assert len(job_metadata) == expected_nsteps

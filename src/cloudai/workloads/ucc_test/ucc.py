@@ -16,7 +16,8 @@
 
 from typing import Literal, Optional, Union
 
-from cloudai import CmdArgs, DockerImage, Installable, TestDefinition
+from cloudai.core import DockerImage, Installable
+from cloudai.models.workload import CmdArgs, TestDefinition
 
 
 class UCCCmdArgs(CmdArgs):

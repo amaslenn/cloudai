@@ -88,9 +88,8 @@ ntasks_per_node = 8
 [partitions]
   [partitions.<YOUR PARTITION NAME>]
   name = "<YOUR PARTITION NAME>"
-  nodes = ["<nodes-[01-10]>"]
 ```
-Please replace `<YOUR PARTITION NAME>` with the name of the partition you want to use. You can find the partition name by running `sinfo` on the cluster. Replace `<nodes-[01-10]>` with the node names you want to use.
+Replace `<YOUR PARTITION NAME>` with the name of the partition you want to use. You can find the partition name by running `sinfo` on the cluster.
 
 #### Step 4: Install Test Requirements
 Once all configs are ready, it is time to install test requirements. It is done once so that you can run multiple experiments without reinstalling the requirements. This step requires the system config file from the step 3.
@@ -238,11 +237,32 @@ cache_docker_images_locally = true
 - **output_path**: Defines the default path where outputs are stored. Whenever a user runs a test scenario, a new subdirectory will be created under this path.
 - **default_partition**: Specifies the default partition where jobs are scheduled.
 - **partitions**: Describes the available partitions and nodes within those partitions.
-  - **groups**: Within the same partition, users can define groups of nodes. This is a logical grouping that does not overlap between groups. The group concept can be used to allocate nodes from specific groups in a test scenario schema.
+  - **[optional] groups**: Within the same partition, users can define groups of nodes. The group concept can be used to allocate nodes from specific groups in a test scenario schema. For instance, this feature is useful for specifying topology awareness. Groups represents logical partitioning of nodes and users are responsible for ensuring no overlap across groups.
 - **mpi**: Indicates the Process Management Interface (PMI) implementation to be used for inter-process communication.
 - **gpus_per_node** and **ntasks_per_node**: These are Slurm arguments passed to the `sbatch` script and `srun`.
 - **cache_docker_images_locally**: Specifies whether CloudAI should cache remote Docker images locally during installation. If set to `true`, CloudAI will cache the Docker images, enabling local access without needing to download them each time a test is run. This approach saves network bandwidth but requires more disk capacity. If set to `false`, CloudAI will allow Slurm to download the Docker images as needed when they are not cached locally by Slurm.
 - **global_env_vars**: Lists all global environment variables that will be applied globally whenever tests are run.
+
+## Describing a System for RunAI Scheduler
+When using RunAI as the scheduler, you need to specify additional fields in the system schema TOML file. Below is the list of required fields and how to set them:
+
+```toml
+name = "runai-cluster"
+scheduler = "runai"
+
+install_path = "./install"
+output_path = "./results"
+
+base_url = "http://runai.example.com"       # The URL of your RunAI system, typically the same as used for the web interface.
+user_email = "your_email"              # The email address used to log into the RunAI system.
+app_id = "your_app_id"                      # Obtained by creating an application in the RunAI web interface.
+app_secret = "your_app_secret"              # Obtained together with the app_id.
+project_id = "your_project_id"              # Project ID assigned or created in the RunAI system (usually an integer).
+cluster_id = "your_cluster_id"              # Cluster ID in UUID format (e.g., a69928cc-ccaa-48be-bda9-482440f4d855).
+```
+* After logging into the RunAI web interface, navigate to Access → Applications and create a new application to obtain app_id and app_secret.
+* Use your assigned project and cluster IDs. Contact your administrator if they are not available.
+* All other fields follow the same semantics as in the Slurm system schema (e.g., install_path, output_path).
 
 ## Describing a Test Scenario in the Test Scenario Schema
 A test scenario is a set of tests with specific dependencies between them. A test scenario is described in a TOML schema file. This is an example of a test scenario file:
@@ -280,6 +300,8 @@ There are two ways to specify nodes:
 -  Using the `num_nodes` field as shown in the example.
 -  Specifying nodes explicitly like `nodes = ["node-001", "node-002"]`
 
+**Note:** When an explicit node list is provided (e.g., `nodes = ["node-001", "node-002"]`), CloudAI lets Slurm apply the arbitrary distribution policy for task placement.
+
  Alternatively, you can utilize the groups feature in the system schema to specify nodes like `nodes = ['PARTITION_NAME:GROUP_NAME:NUM_NODES']`, which allocates `num_nodes` from the group name in the specified partition. You can also use `nodes = ['PARTITION_NAME:GROUP_NAME:max_avail']`, which allocates all the available nodes from the group name in the specified partition.
 
 You can optionally specify a time limit in the Slurm format. Tests can have dependencies. If no dependencies are specified, all tests will run in parallel.
@@ -294,6 +316,33 @@ Dependencies of a test can be described as a subsection of the test. It requires
 - `start_post_init` means the test starts after the prior test begins, with a specified delay
 - `start_post_comp` means the test starts after the prior test completes
 - `end_post_comp` means the test ends when the prior test completes
+
+
+## Configuring HTTP Data Repository
+The HTTP Data Repository is currently supported for Slurm systems only. To enable access, you must update your system schema file and create a credential file in your CloudAI project's root directory.
+
+### Step 1: Update the System Schema File
+Add the following section to your system schema TOML file (e.g., `system_schema.toml`):
+
+```toml
+[data_repository]
+endpoint = "https://my-data-endpoint.com"
+```
+
+Replace the endpoint with your actual data repository URL.
+
+### Step 2: Create the Credential File
+In the root of your CloudAI project (i.e., the current working directory), create a file named `.cloudai.toml` with the following content:
+
+```toml
+[data_repository]
+token = "<your-api-token-here>"
+```
+
+Replace `<your-api-token-here>` with your actual token.
+
+### Step 3: Usage
+Both the endpoint and token must be valid for the HTTP Data Repository to function correctly. If either is missing or incorrect, data will not be posted.
 
 
 ## Downloading and Installing the NeMo Dataset (The Pile Dataset)
@@ -393,7 +442,128 @@ test_name = "nccl_test_all_reduce"
 time_limit = "00:20:00"
 ```
 
+## Downloading DeepSeek Weights
+To run DeepSeek R1 tests in CloudAI, you must download the model weights in advance. These weights are distributed via the NVIDIA NGC Registry and must be manually downloaded using the NGC CLI.
+
+### Step 1: Install NGC CLI
+Download and install the NGC CLI using the following commands:
+
+```bash
+wget --content-disposition https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/3.64.2/files/ngccli_linux.zip -O ngccli_linux.zip
+unzip ngccli_linux.zip
+chmod u+x ngc-cli/ngc
+echo "export PATH=\"$PATH:$(pwd)/ngc-cli\"" >> ~/.bash_profile && source ~/.bash_profile
+```
+
+This will make the `ngc` command available in your terminal.
+
+### Step 2: Configure NGC CLI
+Authenticate your CLI with your NGC API key by running:
+
+```bash
+ngc config set
+```
+
+When prompted, paste your API key, which you can obtain from [https://org.ngc.nvidia.com/setup](https://org.ngc.nvidia.com/setup).
+
+### Step 3: Download the Weights
+Navigate to the directory where you want the DeepSeek model weights to be stored, then run:
+
+```bash
+ngc registry model download-version nim/deepseek-ai/deepseek-r1-instruct:hf-5dde110-nim-fp8 --dest .
+```
+
+This command will create a folder named:
+
+```
+deepseek-r1-instruct_vhf-5dde110-nim-fp8/
+```
+
+inside your current directory.
+
+### Step 4: Verify the Download
+Ensure the full model has been downloaded by checking the folder size:
+
+```bash
+du -sh deepseek-r1-instruct_vhf-5dde110-nim-fp8
+```
+
+The expected size is approximately 642 GB. If it’s significantly smaller, remove the folder and re-run the download.
+
+
 ## Slurm specifics
+
+### Single sbatch vs per-case sbatch
+CloudAI supports two modes for submitting Slurm jobs:
+
+1. (default) Per-case sbatch mode: each case is submitted as a separate sbatch job, allows flexible scheduling and dependency management.
+    - Suites best when cases can run in parallel or there are no dependencies between cases.
+2. Single sbatch mode: all cases are submitted together in a single sbatch job and share the same nodes. Each next case starts after the previous one completes. To enable it one needs to pass `--single-sbatch` flag to `cloudai run` command (works only for Slurm systems).
+    - Suites best for jobs when cases need to run on the same nodes for performance reasons.
+    - There is not support for dependency management between cases yet, all jobs run one after another.
+
+Assuming two cases in a scenario like this:
+```toml
+[[Tests]]
+id = "nccl.all_reduce"
+test_name = "nccl-all_reduce"
+num_nodes = 2
+time_limit = "00:20:00"
+
+[[Tests]]
+id = "nccl.all_gather"
+test_name = "nccl-all_gather"
+num_nodes = 2
+time_limit = "00:20:00"
+```
+
+Regular output directory structure (some files are omitted for clarity):
+```bash
+$ tree results/scenario
+results/scenario
+├── nccl.all_gather
+│   └── 0
+│       ├── cloudai_sbatch_script.sh
+│       ├── env_vars.sh
+│       ├── metadata/
+│       ├── stderr.txt
+│       ├── stdout.txt
+│       └── test-run.toml
+└── nccl.all_reduce
+    └── 0
+        ├── cloudai_sbatch_script.sh
+        ├── env_vars.sh
+        ├── metadata/
+        ├── stderr.txt
+        ├── stdout.txt
+        └── test-run.toml
+```
+
+Single sbatch mode output directory structure:
+```bash
+tree results/scenario
+results/scenario
+├── cloudai_sbatch_script.sh
+├── common.err
+├── common.out
+├── metadata/
+├── nccl.all_gather
+│   └── 0
+│       ├── env_vars.sh
+│       ├── stderr.txt
+│       ├── stdout.txt
+│       └── test-run.toml
+├── nccl.all_reduce
+│   └── 0
+│       ├── env_vars.sh
+│       ├── stderr.txt
+│       ├── stdout.txt
+│       └── test-run.toml
+└── slurm-job.toml
+```
+
+Most of the files are the same: output files, env vars script, test run metadata. Difference for single sbatch mode is that `slurm-job.toml` is created for entires job as well as `cloudai_sbatch_script.sh`. Plus extra `common.err`/`common.out` files are created for general sbatch outputs.
+
 
 ### Extra srun and sbatch arguments
 CloudAI forms sbatch script and srun commands following internal rules. Users can affect the generation but setting special arguments in System TOML file.

@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import asyncio
-import datetime
 import logging
 from abc import ABC, abstractmethod
 from asyncio import Task
@@ -49,7 +48,7 @@ class BaseRunner(ABC):
             new tests and ensuring a graceful termination of all running tests.
     """
 
-    def __init__(self, mode: str, system: System, test_scenario: TestScenario):
+    def __init__(self, mode: str, system: System, test_scenario: TestScenario, output_path: Path):
         """
         Initialize the BaseRunner with a system object, test scenario, and monitor interval.
 
@@ -57,32 +56,17 @@ class BaseRunner(ABC):
             mode (str): The operation mode ('dry-run', 'run').
             system (System): The system configuration.
             test_scenario (TestScenario): The test scenario to run.
+            output_path (Path): Path to the output directory.
         """
         self.mode = mode
         self.system = system
         self.test_scenario = test_scenario
-        self.output_path = self.setup_output_directory(system.output_path)
+        self.scenario_root = output_path
         self.monitor_interval = system.monitor_interval
         self.jobs: List[BaseJob] = []
         self.testrun_to_job_map: Dict[TestRun, BaseJob] = {}
         logging.debug(f"{self.__class__.__name__} initialized")
         self.shutting_down = False
-
-    def setup_output_directory(self, base_output_path: Path) -> Path:
-        """
-        Set up and return the output directory path for the runner instance.
-
-        Args:
-            base_output_path (Path): The base output directory.
-
-        Returns:
-            Path: The path to the output directory.
-        """
-        if not base_output_path.exists():
-            base_output_path.mkdir()
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        output_subpath = base_output_path / f"{self.test_scenario.name}_{current_time}"
-        return output_subpath
 
     async def shutdown(self):
         """Gracefully shut down the runner, terminating all outstanding jobs."""
@@ -99,15 +83,15 @@ class BaseRunner(ABC):
             return
 
         total_tests = len(self.test_scenario.test_runs)
-        completed_jobs_count = 0
-
-        dependency_free_tests = self.find_dependency_free_tests()
-        for tr in dependency_free_tests:
+        dependency_free_trs = self.find_dependency_free_tests()
+        for tr in dependency_free_trs:
             await self.submit_test(tr)
 
-        while completed_jobs_count < total_tests:
+        logging.debug(f"Total tests: {total_tests}, dependency free tests: {[tr.name for tr in dependency_free_trs]}")
+        while self.jobs:
             await self.check_start_post_init_dependencies()
-            completed_jobs_count += await self.monitor_jobs()
+            await self.monitor_jobs()
+            logging.debug(f"sleeping for {self.monitor_interval} seconds")
             await asyncio.sleep(self.monitor_interval)
 
     async def submit_test(self, tr: TestRun):
@@ -118,6 +102,8 @@ class BaseRunner(ABC):
             tr (TestRun): The test to be started.
         """
         logging.info(f"Starting test: {tr.name}")
+        tr.output_path = self.get_job_output_path(tr)
+        self.on_job_submit(tr)
         try:
             job = self._submit_test(tr)
             self.jobs.append(job)
@@ -125,6 +111,10 @@ class BaseRunner(ABC):
         except JobSubmissionError as e:
             logging.error(e)
             exit(1)
+
+    def on_job_submit(self, tr: TestRun) -> None:
+        cmd_gen = tr.test.test_template.command_gen_strategy
+        cmd_gen.store_test_run(tr)
 
     async def delayed_submit_test(self, tr: TestRun, delay: int = 5):
         """
@@ -161,7 +151,17 @@ class BaseRunner(ABC):
         items = list(self.testrun_to_job_map.items())
 
         for tr, job in items:
-            if self.mode == "dry-run" or self.system.is_job_running(job):
+            is_running, is_completed = False, False
+            if self.mode == "dry-run":
+                is_running, is_completed = True, True
+            else:
+                is_running, is_completed = (
+                    self.system.is_job_running(job),
+                    self.system.is_job_completed(job),
+                )
+
+            logging.debug(f"start_post_init for test {tr.name} ({is_running=}, {is_completed=}, {self.mode=})")
+            if is_running or is_completed:
                 await self.check_and_schedule_start_post_init_dependent_tests(tr)
 
     async def check_and_schedule_start_post_init_dependent_tests(self, started_test_run: TestRun):
@@ -211,23 +211,19 @@ class BaseRunner(ABC):
             FileNotFoundError: If the base output directory does not exist.
             PermissionError: If there is a permission issue creating the directories.
         """
-        if tr.step < 0 and not self.output_path.exists():
-            self.output_path.mkdir()
+        if not self.scenario_root.exists():
+            self.scenario_root.mkdir()
 
-        job_output_path = Path()  # avoid reportPossiblyUnboundVariable from pyright
+        job_output_path = self.scenario_root / tr.name / str(tr.current_iteration)
+        # here it is required to check DSE as step number because test_definition object is not a DSE object anymore
+        if tr.step > 0:
+            job_output_path = job_output_path / str(tr.step)
 
-        try:
-            if tr.step > 0:
-                base_path = self.system.output_path / self.test_scenario.name
-                job_output_path = base_path / tr.name / str(tr.current_iteration) / str(tr.step)
-            else:
-                base_path = self.output_path
-                job_output_path = base_path / tr.name / str(tr.current_iteration)
-
-            if not job_output_path.exists():
+        if not job_output_path.exists():
+            try:
                 job_output_path.mkdir(parents=True, exist_ok=True)
-        except PermissionError as e:
-            raise PermissionError(f"Cannot create directory {job_output_path}: {e}") from e
+            except PermissionError as e:
+                raise PermissionError(f"Cannot create directory {job_output_path}: {e}") from e
 
         return job_output_path
 
@@ -240,9 +236,13 @@ class BaseRunner(ABC):
         """
         successful_jobs_count = 0
 
+        logging.debug(f"Monitoring {len(self.jobs)} jobs")
         for job in list(self.jobs):
-            if self.mode == "dry-run" or self.system.is_job_completed(job):
-                await self.job_completion_callback(job)
+            is_completed = True if self.mode == "dry-run" else self.system.is_job_completed(job)
+
+            if is_completed:
+                logging.debug(f"Job {job.id} for test {job.test_run.name} completed ({self.mode=}, {is_completed=})")
+                self.on_job_completion(job)
 
                 if self.mode == "dry-run":
                     successful_jobs_count += 1
@@ -255,8 +255,7 @@ class BaseRunner(ABC):
                             await self.handle_job_completion(job)
                         else:
                             error_message = (
-                                f"Job {job.id} for test {job.test_run.name} failed: "
-                                f"{job_status_result.error_message}"
+                                f"Job {job.id} for test {job.test_run.name} failed: {job_status_result.error_message}"
                             )
                             logging.error(error_message)
                             await self.shutdown()
@@ -265,8 +264,7 @@ class BaseRunner(ABC):
                         job_status_result = self.get_job_status(job)
                         if not job_status_result.is_successful:
                             error_message = (
-                                f"Job {job.id} for test {job.test_run.name} failed: "
-                                f"{job_status_result.error_message}"
+                                f"Job {job.id} for test {job.test_run.name} failed: {job_status_result.error_message}"
                             )
                             logging.error(error_message)
                         successful_jobs_count += 1
@@ -293,21 +291,24 @@ class BaseRunner(ABC):
         Args:
             completed_job (BaseJob): The job that has just been completed.
         """
-        logging.info(f"Job completed: {completed_job.test_run.name}")
+        logging.info(
+            f"Job completed: {completed_job.test_run.name} "
+            f"(iteration {completed_job.test_run.current_iteration + 1} of {completed_job.test_run.iterations})"
+        )
 
         self.jobs.remove(completed_job)
         del self.testrun_to_job_map[completed_job.test_run]
 
         if completed_job.test_run.step <= 0:
-            completed_job.test_run.current_iteration += 1
             if not completed_job.terminated_by_dependency and completed_job.test_run.has_more_iterations():
+                completed_job.test_run.current_iteration += 1
                 msg = f"Re-running job for iteration {completed_job.test_run.current_iteration}"
                 logging.info(msg)
                 await self.submit_test(completed_job.test_run)
             else:
                 await self.handle_dependencies(completed_job)
 
-    async def job_completion_callback(self, job: BaseJob) -> None:  # noqa: B027
+    def on_job_completion(self, job: BaseJob) -> None:
         """
         Call callback functions upon job completion.
 
@@ -317,7 +318,7 @@ class BaseRunner(ABC):
         Args:
             job (BaseJob): The job that has completed and for which callback functions are being invoked.
         """
-        pass
+        return
 
     async def handle_dependencies(self, completed_job: BaseJob) -> List[Task]:
         """

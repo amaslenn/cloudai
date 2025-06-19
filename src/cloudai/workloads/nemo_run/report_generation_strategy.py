@@ -14,58 +14,82 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import logging
 import os
+from functools import cache
+from pathlib import Path
+from typing import ClassVar, List
 
-import numpy as np
+from cloudai.core import METRIC_ERROR, ReportGenerationStrategy
+from cloudai.report_generator.tool.bokeh_report_tool import BokehReportTool
+from cloudai.util.lazy_imports import lazy
 
-from cloudai import ReportGenerationStrategy
+
+@cache
+def extract_timings(stdout_file: Path) -> list[float]:
+    if not stdout_file.exists():
+        logging.debug(f"{stdout_file} not found")
+        return []
+
+    train_step_timings: list[float] = []
+    step_timings: list[float] = []
+
+    with open(stdout_file, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            if "train_step_timing in s:" in line:
+                try:
+                    timing = float(line.split("train_step_timing in s:")[1].strip().split()[0])
+                    train_step_timings.append(timing)
+                    if "global_step:" in line:
+                        global_step = int(line.split("global_step:")[1].split("|")[0].strip())
+                        if 80 <= global_step <= 100:
+                            step_timings.append(timing)
+                except (ValueError, IndexError):
+                    continue
+
+    if not train_step_timings:
+        logging.debug(f"No train_step_timing found in {stdout_file}")
+        return []
+
+    if len(step_timings) < 20:
+        step_timings = train_step_timings[1:]
+
+    return step_timings
 
 
 class NeMoRunReportGenerationStrategy(ReportGenerationStrategy):
     """Strategy for generating reports from NeMoRun directories."""
 
+    metrics: ClassVar[list[str]] = ["default", "step-time"]
+
     def can_handle_directory(self) -> bool:
         for _, __, files in os.walk(self.test_run.output_path):
             for file in files:
-                if file.startswith("stdout.txt"):
+                if file.startswith("stdout.txt") and extract_timings(self.test_run.output_path / file):
                     return True
         return False
 
+    @property
+    def results_file(self) -> Path:
+        return self.test_run.output_path / "stdout.txt"
+
     def generate_report(self) -> None:
-        stdout_file = self.test_run.output_path / "stdout.txt"
-        if not stdout_file.exists():
-            logging.error(f"{stdout_file} not found")
+        if not self.results_file.exists():
+            logging.error(f"{self.results_file} not found")
             return
 
-        train_step_timings = []
-        step_timings = []
-
-        with open(stdout_file, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                if "train_step_timing in s:" in line:
-                    try:
-                        timing = float(line.split("train_step_timing in s:")[1].strip().split()[0])
-                        train_step_timings.append(timing)
-                        if "global_step:" in line:
-                            global_step = int(line.split("global_step:")[1].split("|")[0].strip())
-                            if 80 <= global_step <= 100:
-                                step_timings.append(timing)
-                    except (ValueError, IndexError):
-                        continue
-
-        if not train_step_timings:
-            logging.error(f"No train_step_timing found in {stdout_file}")
+        step_timings = extract_timings(self.results_file)
+        if not step_timings:
+            logging.error(f"No valid step timings found in {self.results_file}. Report generation aborted.")
             return
-
-        if len(step_timings) < 20:
-            step_timings = train_step_timings[1:]
 
         stats = {
-            "avg": np.mean(step_timings),
-            "median": np.median(step_timings),
-            "min": np.min(step_timings),
-            "max": np.max(step_timings),
+            "avg": lazy.np.mean(step_timings),
+            "median": lazy.np.median(step_timings),
+            "min": lazy.np.min(step_timings),
+            "max": lazy.np.max(step_timings),
         }
 
         summary_file = self.test_run.output_path / "report.txt"
@@ -74,3 +98,34 @@ class NeMoRunReportGenerationStrategy(ReportGenerationStrategy):
             f.write("Median: {median}\n".format(median=stats["median"]))
             f.write("Min: {min}\n".format(min=stats["min"]))
             f.write("Max: {max}\n".format(max=stats["max"]))
+
+        self.generate_bokeh_report(step_timings)
+
+    def get_metric(self, metric: str) -> float:
+        logging.debug(f"Getting metric {metric} from {self.results_file.absolute()}")
+        step_timings = extract_timings(self.results_file)
+        if not step_timings:
+            return METRIC_ERROR
+
+        if metric not in {"default", "step-time"}:
+            return METRIC_ERROR
+
+        return float(lazy.np.mean(step_timings))
+
+    def generate_bokeh_report(self, step_timings: List[float]) -> None:
+        if not step_timings:
+            return
+
+        df = lazy.pd.DataFrame({"Step": range(1, len(step_timings) + 1), "train_step_timing in s": step_timings})
+
+        report_tool = BokehReportTool(self.test_run.output_path)
+        report_tool.add_linear_xy_line_plot(
+            title="Train Step Timing over Steps",
+            x_column="Step",
+            y_column="train_step_timing in s",
+            x_axis_label="Step",
+            df=df,
+            sol=self.test_run.sol,
+            color="black",
+        )
+        report_tool.finalize_report(Path("cloudai_nemorun_bokeh_report.html"))

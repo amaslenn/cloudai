@@ -15,12 +15,14 @@
 # limitations under the License.
 
 from pathlib import Path
-from typing import Any, Dict, List, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
-from cloudai import TestRun
-from cloudai.systems import SlurmSystem
-from cloudai.systems.slurm.strategy import SlurmCommandGenStrategy
-from cloudai.workloads.jax_toolbox import GPTTestDefinition, GrokTestDefinition, NemotronTestDefinition
+from cloudai.core import TestRun
+from cloudai.systems.slurm import SlurmCommandGenStrategy, SlurmSystem
+
+from .gpt import GPTTestDefinition
+from .grok import GrokTestDefinition
+from .nemotron import NemotronTestDefinition
 
 
 class JaxToolboxSlurmCommandGenStrategy(SlurmCommandGenStrategy):
@@ -29,6 +31,12 @@ class JaxToolboxSlurmCommandGenStrategy(SlurmCommandGenStrategy):
     def __init__(self, system: SlurmSystem, cmd_args: Dict[str, Any]) -> None:
         super().__init__(system, cmd_args)
         self.test_name = ""
+
+    def image_path(self, tr: TestRun) -> Optional[str]:
+        tdef: Union[GPTTestDefinition, GrokTestDefinition, NemotronTestDefinition] = cast(
+            Union[GPTTestDefinition, GrokTestDefinition, NemotronTestDefinition], tr.test.test_definition
+        )
+        return str(tdef.docker_image.installed_path)
 
     def _container_mounts(self, tr: TestRun) -> list[str]:
         mounts: list[str] = []
@@ -71,7 +79,7 @@ class JaxToolboxSlurmCommandGenStrategy(SlurmCommandGenStrategy):
         """Update environment variables."""
         env_vars = tr.test.test_definition.extra_env_vars
         cmd_args = tr.test.test_definition.cmd_args_dict
-        num_nodes = len(tr.nodes) if tr.nodes else tr.num_nodes
+        num_nodes = len(tr.nodes) if tr.nodes else tr.nnodes
 
         self._update_per_gpu_combine_threshold(env_vars, cmd_args, num_nodes)
         self._update_xla_flags(env_vars, cmd_args)
@@ -82,11 +90,14 @@ class JaxToolboxSlurmCommandGenStrategy(SlurmCommandGenStrategy):
         self, env_vars: Dict[str, Union[str, List[str]]], cmd_args: Dict[str, Any], num_nodes: int
     ):
         combine_threshold = env_vars["COMBINE_THRESHOLD"]
-        combine_threshold_bytes = int(combine_threshold)  # pyright: ignore [reportArgumentType]
-        per_gpu_combine_threshold = int(
-            combine_threshold_bytes / (int(cmd_args[f"{self.test_name}.setup_flags"]["gpus_per_node"]) * num_nodes)
-        )
-        env_vars["PER_GPU_COMBINE_THRESHOLD"] = str(per_gpu_combine_threshold)
+        if isinstance(combine_threshold, str):
+            combine_threshold_bytes = int(combine_threshold)
+            per_gpu_combine_threshold = int(
+                combine_threshold_bytes / (int(cmd_args[f"{self.test_name}.setup_flags"]["gpus_per_node"]) * num_nodes)
+            )
+            env_vars["PER_GPU_COMBINE_THRESHOLD"] = str(per_gpu_combine_threshold)
+        else:
+            raise TypeError("COMBINE_THRESHOLD must be a string representing an integer")
 
     def _update_xla_flags(self, env_vars: Dict[str, Union[str, List[str]]], cmd_args: Dict[str, Any]):
         env_vars["XLA_FLAGS"] = self._format_xla_flags(cmd_args, "perf")
@@ -131,37 +142,16 @@ class JaxToolboxSlurmCommandGenStrategy(SlurmCommandGenStrategy):
 
         return " ".join(sorted(xla_flags))
 
-    def _parse_slurm_args(
-        self, job_name_prefix: str, env_vars: Dict[str, Union[str, List[str]]], cmd_args: Dict[str, Any], tr: TestRun
-    ) -> Dict[str, Any]:
-        base_args = super()._parse_slurm_args(job_name_prefix, env_vars, cmd_args, tr)
-
-        tdef: Union[GPTTestDefinition, GrokTestDefinition, NemotronTestDefinition] = cast(
-            Union[GPTTestDefinition, GrokTestDefinition, NemotronTestDefinition], tr.test.test_definition
-        )
-        base_args.update({"image_path": tdef.docker_image.installed_path})
-
-        output_path = Path(cmd_args["output_path"]).resolve()
-        output_suffix = "-%j.txt" if env_vars.get("UNIFIED_STDOUT_STDERR") == "1" else "-%j-%n-%t.txt"
-        base_args["output"] = str(output_path / f"output{output_suffix}")
-        base_args["error"] = str(output_path / f"error{output_suffix}")
-
-        return base_args
-
     def _gen_srun_command(
-        self,
-        slurm_args: Dict[str, Any],
-        env_vars: Dict[str, Union[str, List[str]]],
-        cmd_args: Dict[str, Any],
-        tr: TestRun,
+        self, env_vars: Dict[str, Union[str, List[str]]], cmd_args: Dict[str, Any], tr: TestRun
     ) -> str:
         self._create_run_script(env_vars, cmd_args, tr.test.extra_cmd_args)
 
         commands = []
         load_container = cmd_args.get("load_container", False)
         if load_container:
-            commands += self._generate_container_load_command(slurm_args)
-        commands += self._generate_run_command(slurm_args, tr)
+            commands += self._generate_container_load_command(tr)
+        commands += self._generate_run_command(tr)
 
         return "\n".join(commands)
 
@@ -333,9 +323,9 @@ class JaxToolboxSlurmCommandGenStrategy(SlurmCommandGenStrategy):
             ["", 'if [ "$SLURM_NODEID" -eq 0 ] && [ "$SLURM_PROCID" -eq 0 ]; then', f"    {command}", "fi"]
         )
 
-    def _generate_container_load_command(self, slurm_args: Dict[str, Any]) -> List[str]:
+    def _generate_container_load_command(self, tr: TestRun) -> List[str]:
         """Generate the command for loading a container."""
-        container_image = slurm_args.get("image_path")
+        container_image = self.image_path(tr)
         if not container_image:
             raise ValueError("image_path in slurm_args must be a valid path")
 
@@ -344,17 +334,21 @@ class JaxToolboxSlurmCommandGenStrategy(SlurmCommandGenStrategy):
             f"    srun --mpi=none --container-image={container_image} --container-name=cont true",
         ]
 
-    def _generate_run_command(self, slurm_args: Dict[str, Any], tr: TestRun) -> List[str]:
+    def _generate_run_command(self, tr: TestRun) -> List[str]:
         """Generate the srun command for executing the test."""
+        output_path = tr.output_path.resolve()
+        env_vars = self._override_env_vars(self.system.global_env_vars, tr.test.extra_env_vars)
+        output_suffix = "-%j.txt" if env_vars.get("UNIFIED_STDOUT_STDERR") == "1" else "-%j-%n-%t.txt"
+        output, error = output_path / f"output{output_suffix}", output_path / f"error{output_suffix}"
         return [
             '    echo "Running srun command"',
             "    srun \\",
             "    --mpi=none \\",
-            f'    {self.system.extra_srun_args if self.system.extra_srun_args else ""} \\',
+            f"    {self.system.extra_srun_args if self.system.extra_srun_args else ''} \\",
             "    --export=ALL \\",
-            f'    -o {slurm_args["output"]} \\',
-            f'    -e {slurm_args["error"]} \\',
+            f"    -o {output.absolute()} \\",
+            f"    -e {error.absolute()} \\",
             "    --container-name=cont \\",
-            f'    --container-mounts={",".join(self.container_mounts(tr))} \\',
+            f"    --container-mounts={','.join(self.container_mounts(tr))} \\",
             "    /opt/paxml/workspace/run.sh",
         ]

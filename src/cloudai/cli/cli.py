@@ -22,22 +22,23 @@ from .handlers import (
     handle_dry_run_and_run,
     handle_generate_report,
     handle_install_and_uninstall,
+    handle_list_registered_items,
     handle_verify_all_configs,
 )
+
+
+def existing_path(filepath: str) -> Path:
+    fpath = Path(filepath)
+    if not fpath.exists():
+        raise argparse.ArgumentTypeError(f"Path '{fpath}' does not exist.")
+    return fpath
 
 
 class CloudAICLI:
     """Command-line argument parser for CloudAI and derivatives."""
 
     def __init__(self):
-        self.DEFAULT_MODES = {
-            "dry-run",
-            "generate-report",
-            "install",
-            "run",
-            "uninstall",
-            "verify-configs",
-        }
+        self.DEFAULT_MODES = {"dry-run", "generate-report", "install", "run", "uninstall", "verify-configs", "list"}
 
         self.parser = argparse.ArgumentParser(description="CloudAI")
         self.parser.add_argument(
@@ -68,18 +69,25 @@ class CloudAICLI:
         self.handlers[name] = handler
         if system_config is not None:
             p.add_argument(
-                "--system-config", help="Path to the system configuration file.", required=system_config, type=Path
+                "--system-config",
+                help="Path to the system configuration file.",
+                required=system_config,
+                type=existing_path,
             )
         if tests_dir is not None:
             p.add_argument(
-                "--tests-dir", help="Path to the test configuration directory.", required=tests_dir, type=Path
+                "--tests-dir", help="Path to the test configuration directory.", required=tests_dir, type=existing_path
             )
         if test_scenario is not None:
-            p.add_argument("--test-scenario", help="Path to the test scenario file.", required=test_scenario, type=Path)
+            p.add_argument(
+                "--test-scenario", help="Path to the test scenario file.", required=test_scenario, type=existing_path
+            )
         if output_dir is not None:
             p.add_argument("--output-dir", help="Path to the output directory.", required=output_dir, type=Path)
         if result_dir is not None:
-            p.add_argument("--result-dir", help="Path to the result directory.", required=result_dir, type=Path)
+            p.add_argument(
+                "--result-dir", help="Path to the result directory.", required=result_dir, type=existing_path
+            )
 
         return p
 
@@ -106,13 +114,17 @@ class CloudAICLI:
                     "Test TOML files or all Test TOML files in the given directory."
                 ),
                 handle_verify_all_configs,
-                system_config=False,
                 tests_dir=False,
             )
             p.add_argument("configs_dir", help="Path to a file or the directory containing the TOML files.", type=Path)
             p.add_argument(
                 "--strict", help="Warn about unknown keys in Test TOML files.", action="store_true", default=False
             )
+
+        if "list" in self.DEFAULT_MODES:
+            p = self.add_command("list", "List registered items.", handle_list_registered_items)
+            p.add_argument("type", choices=["reports"], help="Type of items to list.")
+            p.add_argument("-v", "--verbose", action="store_true", help="Verbose output.")
 
         return self.parser
 
@@ -129,7 +141,7 @@ class CloudAICLI:
                 desc,
                 handle_dry_run_and_run,
                 system_config=True,
-                tests_dir=True,
+                tests_dir=False,
                 test_scenario=True,
                 output_dir=False,
             )
@@ -137,6 +149,12 @@ class CloudAICLI:
                 "--enable-cache-without-check",
                 action="store_true",
                 help="Enable cache without checking.",
+                default=False,
+            )
+            p.add_argument(
+                "--single-sbatch",
+                action="store_true",
+                help="Use single sbatch for all test runs (Slurm only).",
                 default=False,
             )
 
@@ -153,7 +171,7 @@ class CloudAICLI:
                 desc,
                 handle_install_and_uninstall,
                 system_config=True,
-                tests_dir=True,
+                tests_dir=False,
                 test_scenario=False,
                 output_dir=False,
             )

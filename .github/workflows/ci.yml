@@ -16,11 +16,9 @@ jobs:
 
       - name: Set up Python
         uses: actions/setup-python@v5
-        with:
-          python-version: 3.9
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install '.[dev]'
 
       - name: Run ruff linter
         run: ruff check
@@ -42,9 +40,6 @@ jobs:
           set -eE
           set -o pipefail
 
-          export TAPLO_VERSION=0.9.2
-          curl -fsSL https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-full-linux-x86_64.gz \
-            | gzip -d - | install -m 755 /dev/stdin /usr/local/bin/taplo
           taplo fmt --check --diff
 
   test:
@@ -60,11 +55,9 @@ jobs:
 
       - name: Set up Python
         uses: actions/setup-python@v5
-        with:
-          python-version: 3.9
 
       - name: Install dependencies
-        run: pip install pytest -r requirements-dev.txt
+        run: pip install '.[dev]'
 
       - name: Run pytest
         run: |
@@ -72,13 +65,14 @@ jobs:
           set -o pipefail
 
           python -m pytest -vv --cov
-
-          python -m pytest --dead-fixtures
-
           # <100% coverage might indicate that some tests are not doing what they should,
           # but realistically, it might too hard to reach, so lower it a bit
           # (at the moment of writing, it is 99.95%)
           coverage report --include='tests/*' --precision=2 --fail-under=97.00
+
+          python -m pytest --dead-fixtures
+
+          python -m pytest -vv -m ci_only
 
       - name: Test local installation
         run: |
@@ -103,7 +97,9 @@ jobs:
           cloudai verify-configs --tests-dir conf/common/test conf/common
           cloudai verify-configs --strict --tests-dir conf/release/spcx/l40s/test conf/release/spcx/l40s
 
+          # set monitor_interval to 1 to speed up the test
+          sed -i '/scheduler =/a monitor_interval = 1' conf/common/system/example_slurm_cluster.toml
           cloudai dry-run --system-config conf/common/system/example_slurm_cluster.toml \
             --tests-dir conf/common/test/ \
-            --test-scenario conf/common/test_scenario/ucc_test.toml \
+            --test-scenario conf/common/test_scenario/sleep.toml \
             --output-dir ./results

@@ -20,13 +20,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from cloudai._core.test import Test
-from cloudai._core.test_scenario import TestRun
-from cloudai.systems import SlurmSystem
+from cloudai.core import Test, TestRun
+from cloudai.systems.slurm import SlurmSystem
 from cloudai.workloads.nemo_run import (
     Data,
-    Log,
-    LogCkpt,
     NeMoRunCmdArgs,
     NeMoRunSlurmCommandGenStrategy,
     NeMoRunTestDefinition,
@@ -72,25 +69,26 @@ class TestNeMoRunSlurmCommandGenStrategy:
             trainer=Trainer(
                 strategy=TrainerStrategy(tensor_model_parallel_size=2, virtual_pipeline_model_parallel_size=None),
             ),
-            log=Log(ckpt=LogCkpt(save_last=False)),
             data=Data(micro_batch_size=1),
         )
         test_run.test.test_definition.cmd_args = cmd_args
+
+        recipe_name = cmd_gen_strategy._validate_recipe_name(cmd_args.recipe_name)
+
         cmd = cmd_gen_strategy.generate_test_command(
             test_run.test.test_definition.extra_env_vars, test_run.test.test_definition.cmd_args.model_dump(), test_run
         )
         assert cmd is not None
         assert cmd[:5] == [
             "python",
-            f"/cloudai_workspace/{cmd_gen_strategy._run_script(test_run).name}",
+            f"/cloudai_install/{cmd_gen_strategy._run_script(test_run).name}",
             "--factory",
-            cmd_args.recipe_name,
+            recipe_name,
             "-y",
         ]
         assert (
             f"trainer.strategy.tensor_model_parallel_size={cmd_args.trainer.strategy.tensor_model_parallel_size}" in cmd
         )
-        assert f"log.ckpt.save_last={cmd_args.log.ckpt.save_last}" in cmd
         assert f"data.micro_batch_size={cmd_args.data.micro_batch_size}" in cmd
 
     def test_num_nodes(self, cmd_gen_strategy: NeMoRunSlurmCommandGenStrategy, test_run: TestRun) -> None:
@@ -114,17 +112,14 @@ class TestNeMoRunSlurmCommandGenStrategy:
             docker_image_url="nvcr.io/nvidia/nemo:24.09",
             task="fine_tune",
             recipe_name="llama7_13b",
-            trainer=Trainer(
-                num_nodes=4,
-            ),
+            trainer=Trainer(num_nodes=4),
         )
         test_run.test.test_definition.cmd_args = cmd_args
 
-        with caplog.at_level(logging.WARNING), pytest.raises(SystemExit) as excinfo:
+        with caplog.at_level(logging.WARNING):
             cmd_gen_strategy.generate_test_command(
                 test_run.test.test_definition.extra_env_vars,
                 test_run.test.test_definition.cmd_args.model_dump(),
                 test_run,
             )
-        assert excinfo.value.code == 1
         assert "Mismatch in num_nodes" in caplog.text

@@ -14,17 +14,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import ClassVar, List, Tuple, Type, Union
+from __future__ import annotations
 
-from .base_installer import BaseInstaller
-from .base_runner import BaseRunner
-from .configurator.base_agent import BaseAgent
-from .grading_strategy import GradingStrategy
-from .job_id_retrieval_strategy import JobIdRetrievalStrategy
-from .job_status_retrieval_strategy import JobStatusRetrievalStrategy
-from .system import System
-from .test import TestDefinition
-from .test_template_strategy import TestTemplateStrategy
+from typing import TYPE_CHECKING, Callable, ClassVar, List, Set, Tuple, Type, Union
+
+if TYPE_CHECKING:
+    from ..configurator.base_agent import BaseAgent
+    from ..models.scenario import ReportConfig
+    from ..models.workload import TestDefinition
+    from ..reporter import Reporter
+    from .base_installer import BaseInstaller
+    from .base_runner import BaseRunner
+    from .grading_strategy import GradingStrategy
+    from .job_id_retrieval_strategy import JobIdRetrievalStrategy
+    from .job_status_retrieval_strategy import JobStatusRetrievalStrategy
+    from .report_generation_strategy import ReportGenerationStrategy
+    from .system import System
+    from .test_template_strategy import TestTemplateStrategy
+
+RewardFunction = Callable[[List[float]], float]
 
 
 class Singleton(type):
@@ -70,6 +78,10 @@ class Registry(metaclass=Singleton):
     systems_map: ClassVar[dict[str, Type[System]]] = {}
     test_definitions_map: ClassVar[dict[str, Type[TestDefinition]]] = {}
     agents_map: ClassVar[dict[str, Type[BaseAgent]]] = {}
+    reports_map: ClassVar[dict[Type[TestDefinition], Set[Type[ReportGenerationStrategy]]]] = {}
+    scenario_reports: ClassVar[dict[str, type[Reporter]]] = {}
+    report_configs: ClassVar[dict[str, ReportConfig]] = {}
+    reward_functions_map: ClassVar[dict[str, RewardFunction]] = {}
 
     def add_runner(self, name: str, value: Type[BaseRunner]) -> None:
         """
@@ -93,12 +105,7 @@ class Registry(metaclass=Singleton):
         Args:
             name (str): The name of the runner.
             value (Type[BaseRunner]): The runner implementation.
-
-        Raises:
-            ValueError: If value is not a subclass of BaseRunner.
         """
-        if not issubclass(value, BaseRunner):
-            raise ValueError(f"Invalid runner implementation for '{name}', should be subclass of 'BaseRunner'.")
         self.runners_map[name] = value
 
     def add_strategy(
@@ -152,29 +159,6 @@ class Registry(metaclass=Singleton):
             ]
         ],
     ) -> None:
-        if not (
-            issubclass(key[0], TestTemplateStrategy)
-            or issubclass(key[0], JobIdRetrievalStrategy)
-            or issubclass(key[0], JobStatusRetrievalStrategy)
-            or issubclass(key[0], GradingStrategy)
-        ):
-            raise ValueError(
-                "Invalid strategy interface type, should be subclass of 'TestTemplateStrategy' or "
-                "'JobIdRetrievalStrategy' or 'JobStatusRetrievalStrategy' or "
-                "'GradingStrategy'."
-            )
-        if not issubclass(key[1], System):
-            raise ValueError("Invalid system type, should be subclass of 'System'.")
-        if not issubclass(key[2], TestDefinition):
-            raise ValueError("Invalid test definition type, should be subclass of 'TestDefinition'.")
-
-        if not (
-            issubclass(value, TestTemplateStrategy)
-            or issubclass(value, JobIdRetrievalStrategy)
-            or issubclass(value, JobStatusRetrievalStrategy)
-            or issubclass(value, GradingStrategy)
-        ):
-            raise ValueError(f"Invalid strategy implementation {value}, should be subclass of 'TestTemplateStrategy'.")
         self.strategies_map[key] = value
 
     def add_installer(self, name: str, value: Type[BaseInstaller]) -> None:
@@ -199,12 +183,7 @@ class Registry(metaclass=Singleton):
         Args:
             name (str): The name of the installer.
             value (Type[BaseInstaller]): The installer implementation.
-
-        Raises:
-            ValueError: If value is not a subclass of BaseInstaller.
         """
-        if not issubclass(value, BaseInstaller):
-            raise ValueError(f"Invalid installer implementation for '{name}', should be subclass of 'BaseInstaller'.")
         self.installers_map[name] = value
 
     def add_system(self, name: str, value: Type[System]) -> None:
@@ -229,12 +208,7 @@ class Registry(metaclass=Singleton):
         Args:
             name (str): The name of the system.
             value (Type[System]): The system implementation.
-
-        Raises:
-            ValueError: If value is not a subclass of System.
         """
-        if not issubclass(value, System):
-            raise ValueError(f"Invalid system implementation for '{name}', should be subclass of 'System'.")
         self.systems_map[name] = value
 
     def add_test_definition(self, name: str, value: Type[TestDefinition]) -> None:
@@ -259,14 +233,7 @@ class Registry(metaclass=Singleton):
         Args:
             name (str): The name of the test definition.
             value (Type[TestDefinition]): The test definition implementation.
-
-        Raises:
-            ValueError: If value is not a subclass of TestDefinition.
         """
-        if not issubclass(value, TestDefinition):
-            raise ValueError(
-                f"Invalid test definition implementation for '{name}', should be subclass of 'TestDefinition'."
-            )
         self.test_definitions_map[name] = value
 
     def add_agent(self, name: str, value: Type[BaseAgent]) -> None:
@@ -291,10 +258,39 @@ class Registry(metaclass=Singleton):
         Args:
             name (str): The name of the agent.
             value (Type[BaseAgent]): The agent implementation.
-
-        Raises:
-            ValueError: If value is not a subclass of BaseAgent.
         """
-        if not issubclass(value, BaseAgent):
-            raise ValueError(f"Invalid agent implementation for '{name}', should be subclass of 'BaseAgent'.")
         self.agents_map[name] = value
+
+    def add_report(self, tdef_type: Type[TestDefinition], value: Type[ReportGenerationStrategy]) -> None:
+        existing_reports = self.reports_map.get(tdef_type, set())
+        existing_reports.add(value)
+        self.update_report(tdef_type, existing_reports)
+
+    def update_report(self, tdef_type: Type[TestDefinition], reports: Set[Type[ReportGenerationStrategy]]) -> None:
+        self.reports_map[tdef_type] = reports
+
+    def add_scenario_report(self, name: str, report: type[Reporter], config: ReportConfig) -> None:
+        if name in self.scenario_reports:
+            raise ValueError(
+                f"Duplicating scenario report implementation for '{name}', use 'update()' for replacement."
+            )
+        self.update_scenario_report(name, report, config)
+
+    def update_scenario_report(self, name: str, report: type[Reporter], config: ReportConfig) -> None:
+        self.scenario_reports[name] = report
+        self.report_configs[name] = config
+
+    def add_reward_function(self, name: str, value: RewardFunction) -> None:
+        if name in self.reward_functions_map:
+            raise ValueError(f"Duplicating implementation for '{name}', use 'update()' for replacement.")
+        self.update_reward_function(name, value)
+
+    def update_reward_function(self, name: str, value: RewardFunction) -> None:
+        self.reward_functions_map[name] = value
+
+    def get_reward_function(self, name: str) -> RewardFunction:
+        if name not in self.reward_functions_map:
+            raise KeyError(
+                f"Reward function '{name}' not found. Available functions: {list(self.reward_functions_map.keys())}"
+            )
+        return self.reward_functions_map[name]

@@ -16,16 +16,18 @@
 
 import argparse
 from functools import partial
+from importlib.metadata import version
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple, Type
 from unittest.mock import Mock, patch
 
 import pytest
+import toml
 
-from cloudai import CommandGenStrategy, Test, TestDefinition, TestRun, TestScenario, TestTemplate
 from cloudai.cli import handle_dry_run_and_run, setup_logging
-from cloudai.systems import SlurmSystem
-from cloudai.systems.slurm.strategy import SlurmCommandGenStrategy
+from cloudai.core import CommandGenStrategy, Test, TestDefinition, TestRun, TestScenario, TestTemplate
+from cloudai.models.scenario import TestRunDetails
+from cloudai.systems.slurm import SlurmCommandGenStrategy, SlurmSystem
 from cloudai.workloads.jax_toolbox import (
     GPTCmdArgs,
     GPTTestDefinition,
@@ -45,11 +47,17 @@ from cloudai.workloads.nemo_launcher import (
     NeMoLauncherTestDefinition,
 )
 from cloudai.workloads.nemo_run import NeMoRunCmdArgs, NeMoRunSlurmCommandGenStrategy, NeMoRunTestDefinition
+from cloudai.workloads.nixl_bench import NIXLBenchCmdArgs, NIXLBenchSlurmCommandGenStrategy, NIXLBenchTestDefinition
 from cloudai.workloads.sleep import SleepCmdArgs, SleepSlurmCommandGenStrategy, SleepTestDefinition
 from cloudai.workloads.slurm_container import (
     SlurmContainerCmdArgs,
     SlurmContainerCommandGenStrategy,
     SlurmContainerTestDefinition,
+)
+from cloudai.workloads.triton_inference import (
+    TritonInferenceCmdArgs,
+    TritonInferenceSlurmCommandGenStrategy,
+    TritonInferenceTestDefinition,
 )
 from cloudai.workloads.ucc_test import UCCCmdArgs, UCCTestDefinition, UCCTestSlurmCommandGenStrategy
 
@@ -57,54 +65,84 @@ SLURM_TEST_SCENARIOS = [
     {"path": Path("conf/common/test_scenario/sleep.toml"), "expected_dirs_number": 4, "log_file": "sleep_debug.log"},
     {
         "path": Path("conf/common/test_scenario/ucc_test.toml"),
-        "expected_dirs_number": 5,
+        "expected_dirs_number": 4,
         "log_file": "ucc_test_debug.log",
     },
 ]
 
 
-@pytest.mark.parametrize("scenario", SLURM_TEST_SCENARIOS, ids=lambda x: str(x))
-def test_slurm(tmp_path: Path, scenario: Dict):
-    test_scenario_path = scenario["path"]
-    expected_dirs_number = scenario.get("expected_dirs_number")
-    log_file = scenario.get("log_file", ".")
-    log_file_path = tmp_path / log_file
+class TestInDryRun:
+    @pytest.fixture(scope="class", params=SLURM_TEST_SCENARIOS)
+    def do_dry_run(self, tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> tuple[Path, dict]:
+        tmp_path = tmp_path_factory.mktemp("dry_run")
+        scenario = request.param
 
-    setup_logging(log_file_path, "DEBUG")
-    args = argparse.Namespace(
-        mode="dry-run",
-        system_config=Path("conf/common/system/example_slurm_cluster.toml"),
-        test_templates_dir=Path("conf/common/test_template"),
-        tests_dir=Path("conf/common/test"),
-        hook_dir=Path("conf/common/hook"),
-        test_scenario=test_scenario_path,
-        output_dir=tmp_path,
-        enable_cache_without_check=False,
-    )
-    with (
-        patch("asyncio.sleep", return_value=None),
-        patch("cloudai.systems.slurm.SlurmSystem.is_job_completed", return_value=True),
-        patch("cloudai.systems.slurm.SlurmSystem.is_job_running", return_value=True),
-    ):
-        handle_dry_run_and_run(args)
+        test_scenario_path = scenario["path"]
+        log_file = scenario.get("log_file", ".")
+        log_file_path = tmp_path / log_file
 
-    # Find the directory that was created for the test results
-    results_output_dirs = [d for d in tmp_path.iterdir() if d.is_dir()]
+        setup_logging(log_file_path, "DEBUG")
+        args = argparse.Namespace(
+            mode="dry-run",
+            system_config=Path("conf/common/system/example_slurm_cluster.toml"),
+            test_templates_dir=Path("conf/common/test_template"),
+            tests_dir=Path("conf/common/test"),
+            hook_dir=Path("conf/common/hook"),
+            test_scenario=test_scenario_path,
+            output_dir=tmp_path,
+            enable_cache_without_check=False,
+            single_sbatch=False,
+            log_file="debug.log",
+        )
+        with (
+            patch("asyncio.sleep", return_value=None),
+            patch("cloudai.systems.slurm.SlurmSystem.is_job_completed", return_value=True),
+            patch("cloudai.systems.slurm.SlurmSystem.is_job_running", return_value=True),
+            patch("cloudai.util.command_shell.CommandShell.execute") as mock_execute,
+        ):
+            mock_process = Mock()
+            mock_process.poll.return_value = 0
+            mock_process.returncode = 0
+            mock_process.communicate.return_value = ("", "")
+            mock_execute.return_value = mock_process
 
-    # Assuming there's only one result directory created
-    assert len(results_output_dirs) == 1, "No result directory found or multiple directories found."
-    results_output = results_output_dirs[0]
+            handle_dry_run_and_run(args)
 
-    test_dirs = list(results_output.iterdir())
+        return (tmp_path, scenario)
 
-    if expected_dirs_number is not None:
-        assert len(test_dirs) == expected_dirs_number, "Dirs number in output is not as expected"
+    def test_the_only_results_dir_created(self, do_dry_run: tuple[Path, dict]) -> None:
+        tmp_path = do_dry_run[0]
+        results_output_dirs = [d for d in tmp_path.iterdir() if d.is_dir()]
+        assert len(results_output_dirs) == 1, "No result directory found or multiple directories found."
 
-    for td in test_dirs:
-        assert td.is_dir(), "Invalid test directory"
-        assert "Tests." in td.name, "Invalid test directory name"
+    def test_number_of_cases(self, do_dry_run: tuple[Path, dict]) -> None:
+        tmp_path, scenario = do_dry_run
+        results_output_dirs = [d for d in tmp_path.iterdir() if d.is_dir()]
+        results_output = results_output_dirs[0]
 
-    assert log_file_path.exists(), f"Log file {log_file_path} was not created"
+        test_dirs = list(results_output.iterdir())
+
+        if scenario["expected_dirs_number"] is not None:
+            assert len(test_dirs) == scenario["expected_dirs_number"], "Dirs number in output is not as expected"
+
+        for td in test_dirs:
+            assert td.is_dir(), "Invalid test directory"
+            assert "Tests." in td.name, "Invalid test directory name"
+
+    def test_log_file(self, do_dry_run: tuple[Path, dict]) -> None:
+        tmp_path, scenario = do_dry_run
+        log_file_path = tmp_path / scenario["log_file"]
+        assert log_file_path.exists(), f"Log file {log_file_path} was not created"
+
+    def test_details_is_dumped_and_valid(self, do_dry_run: tuple[Path, dict]) -> None:
+        tmp_path, scenario = do_dry_run
+
+        num_cases = scenario["expected_dirs_number"]
+        details_tomls = list(tmp_path.glob(f"**/{CommandGenStrategy.TEST_RUN_DUMP_FILE_NAME}"))
+        assert len(details_tomls) == num_cases, "Details files number is not as expected"
+
+        for details_toml in details_tomls:
+            TestRunDetails.model_validate(toml.load(details_toml))
 
 
 @pytest.fixture
@@ -121,7 +159,7 @@ def create_test_run(
 ) -> TestRun:
     tr = partial_tr(
         name=name,
-        test=Test(test_definition=test_definition, test_template=TestTemplate(slurm_system, name=name)),
+        test=Test(test_definition=test_definition, test_template=TestTemplate(slurm_system)),
     )
     tr.test.test_template.command_gen_strategy = command_gen_strategy(
         slurm_system, tr.test.test_definition.cmd_args_dict
@@ -147,7 +185,9 @@ def build_special_test_run(
                 name=test_type,
                 description=test_type,
                 test_template_name=test_type,
-                cmd_args=GPTCmdArgs(fdl_config="fdl/config", docker_image_url="https://docker/url"),
+                cmd_args=GPTCmdArgs(
+                    fdl_config="fdl/config", docker_image_url="https://docker/url", output_path="/some/output/path"
+                ),
                 extra_env_vars={"COMBINE_THRESHOLD": "1"},
             ),
             JaxToolboxSlurmCommandGenStrategy,
@@ -162,7 +202,9 @@ def build_special_test_run(
                 name=test_type,
                 description=test_type,
                 test_template_name=test_type,
-                cmd_args=GrokCmdArgs(fdl_config="fdl/config", docker_image_url="https://docker/url"),
+                cmd_args=GrokCmdArgs(
+                    fdl_config="fdl/config", docker_image_url="https://docker/url", output_path="/some/output/path"
+                ),
                 extra_env_vars={"COMBINE_THRESHOLD": "1"},
             ),
             JaxToolboxSlurmCommandGenStrategy,
@@ -194,6 +236,7 @@ def build_special_test_run(
                 description="nemo-launcher",
                 test_template_name="nemo-launcher",
                 cmd_args=NeMoLauncherCmdArgs(),
+                extra_env_vars={"VAR": r"$(scontrol show hostname \"${SLURM_STEP_NODELIST}\" | head -n1)"},
             ),
             NeMoLauncherSlurmCommandGenStrategy,
         )
@@ -222,8 +265,11 @@ def build_special_test_run(
         "nemo-launcher",
         "nemo-run-pre-test",
         "nemo-run-no-hook",
+        "nemo-run-vboost",
         "slurm_container",
         "megatron-run",
+        "triton-inference",
+        "nixl_bench",
     ]
 )
 def test_req(request, slurm_system: SlurmSystem, partial_tr: partial[TestRun]) -> Tuple[TestRun, str, Optional[str]]:
@@ -272,25 +318,88 @@ def test_req(request, slurm_system: SlurmSystem, partial_tr: partial[TestRun]) -
                 cmd_args=MegatronRunCmdArgs(
                     docker_image_url="nvcr.io/nvidia/megatron:24.09",
                     run_script=Path.cwd() / "run.py",
-                    save=Path.cwd() / "save",
-                    load=Path.cwd() / "load",
+                    save=Path.cwd(),
+                    load=Path.cwd(),
                     tokenizer_model=Path.cwd() / "model.m",
                 ),
+                extra_container_mounts=["$PWD"],
             ),
             MegatronRunSlurmCommandGenStrategy,
+        ),
+        "nemo-run": lambda: create_test_run(
+            partial_tr,
+            slurm_system,
+            "nemo-run",
+            NeMoRunTestDefinition(
+                name="nemo-run",
+                description="Test enabling vboost",
+                test_template_name="nemo-run",
+                cmd_args=NeMoRunCmdArgs(
+                    docker_image_url="nvcr.io/nvidia/nemo:24.09",
+                    task="pretrain",
+                    recipe_name="llama_3b",
+                ),
+            ),
+            NeMoRunSlurmCommandGenStrategy,
+        ),
+        "triton-inference": lambda: create_test_run(
+            partial_tr,
+            slurm_system,
+            "triton-inference",
+            TritonInferenceTestDefinition(
+                name="triton-inference",
+                description="triton-inference",
+                test_template_name="triton-inference",
+                cmd_args=TritonInferenceCmdArgs(
+                    server_docker_image_url="nvcr.io/nim/deepseek-ai/deepseek-r1:1.7.2",
+                    client_docker_image_url="nvcr.io/nvidia/tritonserver:25.01-py3-sdk",
+                    served_model_name="model",
+                    tokenizer="tok",
+                ),
+            ),
+            TritonInferenceSlurmCommandGenStrategy,
+        ),
+        "nixl_bench": lambda: create_test_run(
+            partial_tr,
+            slurm_system,
+            "nixl_bench",
+            NIXLBenchTestDefinition(
+                name="nixl_bench",
+                description="nixl_bench",
+                test_template_name="nixl_bench",
+                etcd_image_url="url.com/docker:1",
+                cmd_args=NIXLBenchCmdArgs(
+                    docker_image_url="url.com/docker:2", etcd_endpoint="http://$SLURM_JOB_MASTER_NODE:2379"
+                ),
+            ),
+            NIXLBenchSlurmCommandGenStrategy,
         ),
     }
 
     if request.param.startswith(("gpt-", "grok-", "nemo-run-", "nemo-launcher")):
-        return build_special_test_run(partial_tr, slurm_system, request.param, test_mapping)
+        tr, sbatch_file, run_script = build_special_test_run(partial_tr, slurm_system, request.param, test_mapping)
+
+        if request.param == "nemo-run-vboost":
+            tr.test.extra_env_vars["ENABLE_VBOOST"] = "1"
+
+        return tr, sbatch_file, run_script
+
     if request.param in test_mapping:
         tr = test_mapping[request.param]()
+        if request.param.startswith("triton-inference"):
+            tr.num_nodes = 3
+            tr.test.test_definition.extra_env_vars["NIM_MODEL_NAME"] = str(tr.output_path)
+            tr.test.test_definition.extra_env_vars["NIM_CACHE_PATH"] = str(tr.output_path)
+        if request.param == "nixl_bench":
+            tr.num_nodes = 2
         return tr, f"{request.param}.sbatch", None
+
     raise ValueError(f"Unknown test: {request.param}")
 
 
 def test_sbatch_generation(slurm_system: SlurmSystem, test_req: tuple[TestRun, str]):
     slurm_system.output_path.mkdir(parents=True, exist_ok=True)
+    slurm_system.container_mount_home = True
 
     tr = test_req[0]
 
@@ -299,7 +408,9 @@ def test_sbatch_generation(slurm_system: SlurmSystem, test_req: tuple[TestRun, s
         ref.replace("__OUTPUT_DIR__", str(slurm_system.output_path.parent))
         .replace("__JOB_NAME__", "job_name")
         .replace("__CLOUDAI_DIR__", str(Path(__file__).parent.parent))
+        .replace("__INSTALL_DIR__", str(slurm_system.install_path.absolute()))
     )
+    ref = ref.replace("__CLOUDAI_VERSION__", version("cloudai"))
 
     sbatch_script = tr.test.test_template.gen_exec_command(tr).split()[-1]
     if "nemo-launcher" in test_req[1]:
@@ -313,3 +424,13 @@ def test_sbatch_generation(slurm_system: SlurmSystem, test_req: tuple[TestRun, s
         curr_run_script = Path(slurm_system.output_path / "run.sh").read_text()
         ref_run_script = (Path(__file__).parent / "ref_data" / run_script).read_text()
         assert curr_run_script == ref_run_script
+
+    if test_req[1] == "triton-inference.sbatch":
+        wrapper_file = slurm_system.output_path / "start_server_wrapper.sh"
+        assert wrapper_file.exists(), "start_server_wrapper.sh was not generated"
+        curr_wrapper = wrapper_file.read_text().strip()
+        ref_wrapper = (
+            (Path(__file__).parent / "ref_data" / "triton-inference-start_server_wrapper.sh").read_text().strip()
+        )
+        ref_wrapper = ref_wrapper.replace("__OUTPUT_DIR__", str(slurm_system.output_path.parent))
+        assert curr_wrapper == ref_wrapper, "start_server_wrapper.sh does not match reference"

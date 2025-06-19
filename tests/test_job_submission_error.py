@@ -20,13 +20,8 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from cloudai import TestTemplate
-from cloudai._core.exceptions import JobIdRetrievalError
-from cloudai._core.test import Test
-from cloudai._core.test_scenario import TestRun, TestScenario
-from cloudai.runner.slurm.slurm_runner import SlurmRunner
-from cloudai.systems import SlurmSystem
-from cloudai.systems.slurm.slurm_system import SlurmPartition
+from cloudai.core import JobIdRetrievalError, Test, TestRun, TestScenario, TestTemplate
+from cloudai.systems.slurm import SlurmPartition, SlurmRunner, SlurmSystem
 from cloudai.util import CommandShell
 
 
@@ -62,11 +57,11 @@ def slurm_system(tmp_path: Path):
 
 
 @pytest.fixture
-def slurm_runner(slurm_system) -> SlurmRunner:
+def slurm_runner(slurm_system, tmp_path: Path) -> SlurmRunner:
     test_scenario = TestScenario(
         name="Test Scenario", test_runs=[TestRun("tr-name", MockTest(section_name="Mock Test"), 1, [])]
     )
-    runner = SlurmRunner(mode="run", system=slurm_system, test_scenario=test_scenario)
+    runner = SlurmRunner(mode="run", system=slurm_system, test_scenario=test_scenario, output_path=tmp_path)
     runner.cmd_shell = MockCommandShell()
     return runner
 

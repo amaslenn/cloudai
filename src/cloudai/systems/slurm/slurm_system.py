@@ -14,17 +14,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import logging
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
-from cloudai import BaseJob, System
+from cloudai.core import BaseJob, File, Installable, System
+from cloudai.models.scenario import ReportConfig, parse_reports_spec
 from cloudai.util import CommandShell
 
+from .slurm_metadata import SlurmStepMetadata
 from .slurm_node import SlurmNode, SlurmNodeState
+
+
+class DataRepositoryConfig(BaseModel):
+    """Configuration for a data repository."""
+
+    endpoint: str
+    verify_certs: bool = True
 
 
 def parse_node_list(node_list: str) -> List[str]:
@@ -120,6 +131,16 @@ class SlurmSystem(BaseModel, System):
     cmd_shell: CommandShell = Field(default=CommandShell(), exclude=True)
     extra_srun_args: Optional[str] = None
     extra_sbatch_args: list[str] = []
+    supports_gpu_directives_cache: Optional[bool] = Field(default=None, exclude=True)
+    container_mount_home: bool = False
+
+    data_repository: Optional[DataRepositoryConfig] = None
+    reports: Optional[dict[str, ReportConfig]] = None
+
+    @field_validator("reports", mode="before")
+    @classmethod
+    def parse_reports(cls, value: dict[str, Any] | None) -> dict[str, ReportConfig] | None:
+        return parse_reports_spec(value)
 
     @property
     def groups(self) -> Dict[str, Dict[str, List[SlurmNode]]]:
@@ -130,12 +151,38 @@ class SlurmSystem(BaseModel, System):
                 node_names = set()
                 for group_nodes in group.nodes:
                     node_names.update(set(parse_node_list(group_nodes)))
-                groups[part.name][group.name] = [
-                    SlurmNode(name=node_name, partition=self.name, state=SlurmNodeState.UNKNOWN_STATE)
-                    for node_name in node_names
-                ]
+
+                groups[part.name][group.name] = []
+                for node_name in node_names:
+                    node_in_partition = next((node for node in part.slurm_nodes if node.name == node_name), None)
+                    if not node_in_partition:
+                        logging.error(f"Node '{node_name}' not found in partition '{part.name}'")
+                        groups[part.name][group.name].append(
+                            SlurmNode(name=node_name, partition=self.name, state=SlurmNodeState.UNKNOWN_STATE)
+                        )
+                    else:
+                        groups[part.name][group.name].append(node_in_partition)
 
         return groups
+
+    @property
+    def supports_gpu_directives(self) -> bool:
+        if self.supports_gpu_directives_cache is not None:
+            return self.supports_gpu_directives_cache
+
+        stdout, stderr = self.fetch_command_output("scontrol show config")
+        if stderr:
+            logging.warning(f"Error checking GPU support: {stderr}")
+            self.supports_gpu_directives_cache = True
+            return True
+
+        for line in stdout.splitlines():
+            if "GresTypes" in line and "gpu" in line:
+                self.supports_gpu_directives_cache = True
+                return True
+
+        self.supports_gpu_directives_cache = False
+        return False
 
     @field_serializer("install_path", "output_path")
     def _path_serializer(self, v: Path) -> str:
@@ -177,6 +224,7 @@ class SlurmSystem(BaseModel, System):
 
         while retry_count < retry_threshold:
             stdout, stderr = self.cmd_shell.execute(command).communicate()
+            logging.debug(f"Job running: {command=} {stdout=} {stderr=}")
 
             if "Socket timed out" in stderr or "slurm_load_jobs error" in stderr:
                 retry_count += 1
@@ -190,8 +238,8 @@ class SlurmSystem(BaseModel, System):
                 logging.error(error_message)
                 raise RuntimeError(error_message)
 
-            job_state = stdout.strip()
-            if job_state in ["RUNNING", "PENDING"]:
+            job_states = stdout.strip().split()
+            if "RUNNING" in job_states:
                 return True
 
             break
@@ -224,6 +272,7 @@ class SlurmSystem(BaseModel, System):
 
         while retry_count < retry_threshold:
             stdout, stderr = self.cmd_shell.execute(command).communicate()
+            logging.debug(f"Job completed: {command=} {stdout=} {stderr=}")
 
             if "Socket timed out" in stderr or "slurm_load_jobs error" in stderr:
                 retry_count += 1
@@ -239,7 +288,7 @@ class SlurmSystem(BaseModel, System):
             if "RUNNING" in job_states:
                 return False
 
-            if any(state in ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"] for state in job_states):
+            if any(state in ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT", "CANCELLED+"] for state in job_states):
                 return True
 
             break
@@ -250,6 +299,31 @@ class SlurmSystem(BaseModel, System):
             raise RuntimeError(error_message)
 
         return False
+
+    def get_job_status(self, job: BaseJob, retry_threshold: int = 3) -> list[SlurmStepMetadata]:
+        retry_count = 0
+        command = (
+            f"sacct -j {job.id} --format=JobID,JobName,State,ExitCode,Start,End,ElapsedRAW,SubmitLine "
+            "--delimiter='|' -p --noheader"
+        )
+
+        while retry_count < retry_threshold:
+            stdout, stderr = self.cmd_shell.execute(command).communicate()
+            logging.debug(f"Job status: {command=} {stdout=} {stderr=}")
+
+            if "Socket timed out" in stderr or "slurm_load_jobs error" in stderr:
+                retry_count += 1
+                logging.warning(f"Retrying job status check (attempt {retry_count}/{retry_threshold})")
+                continue
+
+            if stderr:
+                error_message = f"Error checking job status: {stderr}"
+                logging.error(error_message)
+                raise RuntimeError(error_message)
+
+            return SlurmStepMetadata.from_sacct_output(stdout, delimiter="|")
+
+        return []
 
     def kill(self, job: BaseJob) -> None:
         """
@@ -360,9 +434,9 @@ class SlurmSystem(BaseModel, System):
             ValueError: If the partition or group is not found, or if the requested number of nodes exceeds the
                 available nodes.
         """
-        self.validate_partition_and_group(partition_name, group_name)
-
         self.update()
+
+        self.validate_partition_and_group(partition_name, group_name)
 
         grouped_nodes = self.group_nodes_by_state(partition_name, group_name)
 
@@ -422,6 +496,8 @@ class SlurmSystem(BaseModel, System):
         for node in self.groups[partition_name][group_name]:
             if node.state in grouped_nodes:
                 grouped_nodes[node.state].append(node)
+
+        logging.debug(f"Grouped nodes by state: {grouped_nodes}")
 
         return grouped_nodes
 
@@ -693,3 +769,6 @@ class SlurmSystem(BaseModel, System):
             num_nodes = len(parsed_nodes)
             node_list = parsed_nodes
         return num_nodes, node_list
+
+    def system_installables(self) -> list[Installable]:
+        return [File(Path(__file__).parent.absolute() / "slurm-metadata.sh")]

@@ -19,9 +19,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, cast
 
-from cloudai import TestRun
-from cloudai.systems.slurm.strategy import SlurmCommandGenStrategy
-from cloudai.workloads.nemo_launcher import NeMoLauncherTestDefinition
+from cloudai.core import TestRun
+from cloudai.systems.slurm import SlurmCommandGenStrategy
+
+from .nemo_launcher import NeMoLauncherTestDefinition
 
 
 class NeMoLauncherSlurmCommandGenStrategy(SlurmCommandGenStrategy):
@@ -36,8 +37,8 @@ class NeMoLauncherSlurmCommandGenStrategy(SlurmCommandGenStrategy):
     def gen_exec_command(self, tr: TestRun) -> str:
         self._prepare_environment(tr.test.cmd_args, tr.test.extra_env_vars, tr.output_path)
 
-        _, nodes = self.system.get_nodes_by_spec(tr.num_nodes, tr.nodes)
-        self._set_node_config(nodes, tr.num_nodes)
+        _, nodes = self.system.get_nodes_by_spec(tr.nnodes, tr.nodes)
+        self._set_node_config(nodes, tr.nnodes)
 
         tdef: NeMoLauncherTestDefinition = cast(NeMoLauncherTestDefinition, tr.test.test_definition)
 
@@ -91,18 +92,24 @@ class NeMoLauncherSlurmCommandGenStrategy(SlurmCommandGenStrategy):
         self._validate_data_config()
 
         cmd_args_str = self._generate_cmd_args_str(self.final_cmd_args, nodes)
-        full_cmd = f"{py_bin} {repo_path / tdef.cmd_args.launcher_script} {cmd_args_str}"
+        full_cmd = f"{py_bin} \\\n {repo_path / tdef.cmd_args.launcher_script} \\\n {cmd_args_str}"
         if tr.test.extra_cmd_args:
             full_cmd += f" {tr.test.extra_cmd_args}"
         full_cmd = self._update_container_mounts_with_tokenizer_path(full_cmd)
 
-        env_vars_str = " ".join(f"{key}={value}" for key, value in self.final_env_vars.items())
-        full_cmd = f"{env_vars_str} {full_cmd}" if env_vars_str else full_cmd
+        env_vars_str = self._gen_env_vars_str(self.final_env_vars)
+        full_cmd = f"{env_vars_str}{full_cmd}" if env_vars_str else full_cmd
 
         # Log the generated command to a bash file
         self._log_command_to_file(full_cmd, tr.output_path)
 
         return full_cmd.strip()
+
+    def _gen_env_vars_str(self, env: dict[str, str | list[str]]) -> str:
+        env_vars_str = " \\\n".join(f'{key}="{value}"' for key, value in env.items())
+        if env_vars_str:
+            env_vars_str += " \\\n"
+        return env_vars_str
 
     def _prepare_environment(
         self,
@@ -198,7 +205,7 @@ class NeMoLauncherSlurmCommandGenStrategy(SlurmCommandGenStrategy):
             if key.startswith("env_vars."):
                 if isinstance(value, str) and "," in value:
                     value = f"\\'{value}\\'"
-                env_var_str_parts.append(f"+{key}={value}")
+                env_var_str_parts.append(f'+{key}="{value}"')
             else:
                 if isinstance(value, list):
                     value = ",".join(map(str, value))
@@ -208,7 +215,7 @@ class NeMoLauncherSlurmCommandGenStrategy(SlurmCommandGenStrategy):
             nodes_str = ",".join(nodes)
             cmd_arg_str_parts.append(f"+cluster.nodelist=\\'{nodes_str}\\'")
 
-        return " ".join(cmd_arg_str_parts + env_var_str_parts)
+        return " \\\n ".join(cmd_arg_str_parts + env_var_str_parts)
 
     def _log_command_to_file(self, command: str, output_path: Path):
         """Log the generated command to a bash file in the specified output path."""
@@ -217,10 +224,8 @@ class NeMoLauncherSlurmCommandGenStrategy(SlurmCommandGenStrategy):
         # Ensure the output path exists
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
-        command_with_line_breaks = command.replace(" ", " \\\n ")
-
         with log_file.open("a") as f:
-            f.write(f"{command_with_line_breaks}\n\n")
+            f.write(f"{command}\n\n")
 
     def _handle_special_keys(self, key: str, value: Any) -> Any:
         """

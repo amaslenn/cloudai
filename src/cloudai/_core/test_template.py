@@ -35,7 +35,6 @@ class TestTemplate:
     based on system configurations and test parameters.
 
     Attributes
-        name (str): Unique name of the test template.
         cmd_args (Dict[str, Any]): Default command-line arguments.
         logger (logging.Logger): Logger for the test template.
         command_gen_strategy (CommandGenStrategy): Strategy for generating execution commands.
@@ -47,31 +46,32 @@ class TestTemplate:
 
     __test__ = False
 
-    def __init__(self, system: System, name: str) -> None:
+    def __init__(self, system: System) -> None:
         """
         Initialize a TestTemplate instance.
 
         Args:
             system (System): System configuration for the test template.
-            name (str): Name of the test template.
-            cmd_args (Dict[str, Any]): Command-line arguments.
         """
         self.system = system
-        self.name = name
-        self.command_gen_strategy: Optional[CommandGenStrategy] = None
+        self._command_gen_strategy: Optional[CommandGenStrategy] = None
         self.json_gen_strategy: Optional[JsonGenStrategy] = None
         self.job_id_retrieval_strategy: Optional[JobIdRetrievalStrategy] = None
         self.job_status_retrieval_strategy: Optional[JobStatusRetrievalStrategy] = None
         self.grading_strategy: Optional[GradingStrategy] = None
 
-    def __repr__(self) -> str:
-        """
-        Return a string representation of the TestTemplate instance.
+    @property
+    def command_gen_strategy(self) -> CommandGenStrategy:
+        if self._command_gen_strategy is None:
+            raise ValueError(
+                "command_gen_strategy is missing. Ensure the strategy is registered in the Registry "
+                "by calling the appropriate registration function for the system type."
+            )
+        return self._command_gen_strategy
 
-        Returns
-            str: String representation of the test template.
-        """
-        return f"TestTemplate(name={self.name})"
+    @command_gen_strategy.setter
+    def command_gen_strategy(self, value: CommandGenStrategy) -> None:
+        self._command_gen_strategy = value
 
     def gen_exec_command(self, tr: TestRun) -> str:
         """
@@ -83,46 +83,7 @@ class TestTemplate:
         Returns:
             str: The generated execution command.
         """
-        if self.command_gen_strategy is None:
-            raise ValueError(
-                "command_gen_strategy is missing. Ensure the strategy is registered in the Registry "
-                "by calling the appropriate registration function for the system type."
-            )
         return self.command_gen_strategy.gen_exec_command(tr)
-
-    def gen_srun_command(self, tr: TestRun) -> str:
-        """
-        Generate an Slurm srun command for a test using the provided command generation strategy.
-
-        Args:
-            tr (TestRun): Contains the test and its run-specific configurations.
-
-        Returns:
-            str: The generated Slurm srun command.
-        """
-        if self.command_gen_strategy is None:
-            raise ValueError(
-                "command_gen_strategy is missing. Ensure the strategy is registered in the Registry "
-                "by calling the appropriate registration function for the system type."
-            )
-        return self.command_gen_strategy.gen_srun_command(tr)
-
-    def gen_srun_success_check(self, tr: TestRun) -> str:
-        """
-        Generate a Slurm success check command for a test using the provided command generation strategy.
-
-        Args:
-            tr (TestRun): Contains the test and its run-specific configurations.
-
-        Returns:
-            str: The generated command to check the success of the test run.
-        """
-        if self.command_gen_strategy is None:
-            raise ValueError(
-                "command_gen_strategy is missing. Ensure the strategy is registered in the Registry "
-                "by calling the appropriate registration function for the system type."
-            )
-        return self.command_gen_strategy.gen_srun_success_check(tr)
 
     def gen_json(self, tr: TestRun) -> Dict[Any, Any]:
         """

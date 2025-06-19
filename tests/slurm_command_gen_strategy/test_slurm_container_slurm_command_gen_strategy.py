@@ -14,14 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
+from typing import cast
 
 import pytest
 
 from cloudai import TestRun
-from cloudai._core.test import NsysConfiguration, Test
-from cloudai._core.test_template import TestTemplate
-from cloudai.systems import SlurmSystem
+from cloudai.core import Test, TestTemplate
+from cloudai.models.workload import NsysConfiguration
+from cloudai.systems.slurm import SlurmSystem
 from cloudai.workloads.slurm_container import (
     SlurmContainerCmdArgs,
     SlurmContainerCommandGenStrategy,
@@ -37,7 +37,7 @@ def test_run(slurm_system: SlurmSystem) -> TestRun:
         test_template_name="tt",
         cmd_args=SlurmContainerCmdArgs(docker_image_url="docker://url", cmd="cmd"),
     )
-    t = Test(test_definition=tdef, test_template=TestTemplate(name="tt", system=slurm_system))
+    t = Test(test_definition=tdef, test_template=TestTemplate(system=slurm_system))
     tr = TestRun(name="name", test=t, num_nodes=1, nodes=[])
     return tr
 
@@ -45,13 +45,16 @@ def test_run(slurm_system: SlurmSystem) -> TestRun:
 def test_default(slurm_system: SlurmSystem, test_run: TestRun) -> None:
     cgs = SlurmContainerCommandGenStrategy(slurm_system, {})
     cmd = cgs.gen_srun_command(test_run)
-
     srun_part = (
-        f"srun --mpi={slurm_system.mpi} --container-image={test_run.test.test_definition.cmd_args.docker_image_url} "
-        f"--container-mounts={Path.cwd().absolute()}:/cloudai_run_results --no-container-mount-home"
+        f"srun --export=ALL --mpi={slurm_system.mpi} "
+        f"--container-image={test_run.test.test_definition.cmd_args.docker_image_url} "
+        f"--container-mounts={test_run.output_path.absolute()}:/cloudai_run_results,"
+        f"{slurm_system.install_path.absolute()}:/cloudai_install,"
+        f"{test_run.output_path.absolute()} "
+        f"--no-container-mount-home"
     )
 
-    assert cmd == f'{srun_part} bash -c "cmd"'
+    assert cmd == f'{srun_part} bash -c "source {(test_run.output_path / "env_vars.sh").absolute()}; cmd"'
 
 
 def test_with_nsys(slurm_system: SlurmSystem, test_run: TestRun) -> None:
@@ -61,8 +64,33 @@ def test_with_nsys(slurm_system: SlurmSystem, test_run: TestRun) -> None:
     cmd = cgs.gen_srun_command(test_run)
 
     srun_part = (
-        f"srun --mpi={slurm_system.mpi} --container-image={test_run.test.test_definition.cmd_args.docker_image_url} "
-        f"--container-mounts={Path.cwd().absolute()}:/cloudai_run_results --no-container-mount-home"
+        f"srun --export=ALL --mpi={slurm_system.mpi} "
+        f"--container-image={test_run.test.test_definition.cmd_args.docker_image_url} "
+        f"--container-mounts={test_run.output_path.absolute()}:/cloudai_run_results,"
+        f"{slurm_system.install_path.absolute()}:/cloudai_install,"
+        f"{test_run.output_path.absolute()} "
+        f"--no-container-mount-home"
     )
 
-    assert cmd == f'{srun_part} bash -c "{" ".join(nsys.cmd_args)} cmd"'
+    assert cmd == f'{srun_part} bash -c "source {(test_run.output_path / "env_vars.sh").absolute()}; nsys profile cmd"'
+
+
+def test_with_extra_srun_args(slurm_system: SlurmSystem, test_run: TestRun) -> None:
+    extra_args = ["--ntasks=1", "--ntasks-per-node=1"]
+    tdef = cast(SlurmContainerTestDefinition, test_run.test.test_definition)
+    tdef.extra_srun_args = extra_args
+
+    cgs = SlurmContainerCommandGenStrategy(slurm_system, {})
+    cmd = cgs.gen_srun_command(test_run)
+
+    srun_part = (
+        f"srun --export=ALL --mpi={slurm_system.mpi} "
+        f"--container-image={test_run.test.test_definition.cmd_args.docker_image_url} "
+        f"--container-mounts={test_run.output_path.absolute()}:/cloudai_run_results,"
+        f"{slurm_system.install_path.absolute()}:/cloudai_install,"
+        f"{test_run.output_path.absolute()} "
+        f"--no-container-mount-home "
+        f"{' '.join(extra_args)}"
+    )
+
+    assert cmd == f'{srun_part} bash -c "source {(test_run.output_path / "env_vars.sh").absolute()}; cmd"'

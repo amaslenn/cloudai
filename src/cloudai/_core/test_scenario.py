@@ -14,13 +14,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import copy
+import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Set, Type
+from typing import TYPE_CHECKING, Any, List, Optional, Set, Type, Union
+
+from .system import System
+from .test_template_strategy import TestTemplateStrategy
 
 if TYPE_CHECKING:
     from .report_generation_strategy import ReportGenerationStrategy
     from .test import Test
+
+
+METRIC_ERROR = -1.0
 
 
 class TestDependency:
@@ -49,7 +59,7 @@ class TestRun:
 
     name: str
     test: "Test"
-    num_nodes: int
+    num_nodes: Union[int, list[int]]
     nodes: List[str]
     output_path: Path = Path("")
     iterations: int = 1
@@ -60,9 +70,9 @@ class TestRun:
     weight: float = 0.0
     ideal_perf: float = 1.0
     dependencies: dict[str, TestDependency] = field(default_factory=dict)
-    pre_test: Optional["TestScenario"] = None
-    post_test: Optional["TestScenario"] = None
-    reports: Set[Type["ReportGenerationStrategy"]] = field(default_factory=set)
+    pre_test: Optional[TestScenario] = None
+    post_test: Optional[TestScenario] = None
+    reports: Set[Type[ReportGenerationStrategy]] = field(default_factory=set)
 
     def __hash__(self) -> int:
         return hash(self.name + self.test.name + str(self.iterations) + str(self.current_iteration))
@@ -74,7 +84,90 @@ class TestRun:
         Returns
             bool: True if more iterations are pending, False otherwise.
         """
-        return self.current_iteration < self.iterations
+        return self.current_iteration + 1 < self.iterations
+
+    @property
+    def metric_reporter(self) -> Optional[Type[ReportGenerationStrategy]]:
+        if not self.reports:
+            return None
+
+        if not self.test.test_definition.agent_metrics:
+            return None
+
+        for r in self.reports:
+            if all(metric in r.metrics for metric in self.test.test_definition.agent_metrics):
+                return r
+
+        return None
+
+    def get_metric_value(self, system: System, metric: str) -> float:
+        report = self.metric_reporter
+        if report is None:
+            return METRIC_ERROR
+
+        return report(system, self).get_metric(metric)
+
+    @property
+    def is_dse_job(self) -> bool:
+        return self.test.test_definition.is_dse_job or isinstance(self.num_nodes, list)
+
+    @property
+    def nnodes(self) -> int:
+        """Type safe getter for num_nodes, should only be used on an unrolled DSE job."""
+        if isinstance(self.num_nodes, list):
+            raise TypeError("num_nodes is a list, cannot be used as a scalar.")
+        return self.num_nodes
+
+    @property
+    def param_space(self) -> dict[str, Any]:
+        cmd_args_dict = TestTemplateStrategy._flatten_dict(self.test.test_definition.cmd_args.model_dump())
+        extra_env_vars_dict = self.test.test_definition.extra_env_vars
+
+        action_space: dict[str, Any] = {
+            **{key: value for key, value in cmd_args_dict.items() if isinstance(value, list)},
+            **{f"extra_env_vars.{key}": value for key, value in extra_env_vars_dict.items() if isinstance(value, list)},
+        }
+        if isinstance(self.num_nodes, list):
+            action_space["NUM_NODES"] = self.num_nodes
+
+        return action_space
+
+    @property
+    def all_combinations(self) -> list[dict[str, Any]]:
+        if not self.is_dse_job:
+            return []
+
+        param_space: dict[str, Any] = self.param_space
+        if not param_space:
+            return []
+
+        parameter_values: list[Any] = []
+        for _, values in param_space.items():
+            parameter_values.append(values)
+        action_combinations = list(itertools.product(*parameter_values))
+
+        keys = list(param_space.keys())
+        all_combinations = [dict(zip(keys, combination, strict=True)) for combination in action_combinations]
+
+        return all_combinations
+
+    def apply_params_set(self, action: dict[str, Any]) -> "TestRun":
+        tdef = self.test.test_definition.model_copy(deep=True)
+        for key, value in action.items():
+            if key.startswith("extra_env_vars."):
+                tdef.extra_env_vars[key[len("extra_env_vars.") :]] = value
+            else:
+                attrs = key.split(".")
+                obj = tdef.cmd_args
+                for attr in attrs[:-1]:
+                    obj = getattr(obj, attr)
+                setattr(obj, attrs[-1], value)
+
+        new_tr = copy.deepcopy(self)
+        if "NUM_NODES" in action:
+            new_tr.num_nodes = action["NUM_NODES"]
+        new_tr.test.test_definition = type(tdef)(**tdef.model_dump())  # re-create the model to enable validation
+        return new_tr
 
 
 class TestScenario:

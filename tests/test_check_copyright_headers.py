@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.ci_only  # This test takes long time to run
+
 HEADER = """# SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
 # Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
@@ -48,11 +50,18 @@ def prepare_copyright_with_year(file: Path, line: str) -> str:
         capture_output=True,
         text=True,
     )
-    curr_year_spec = line.split(" ")[3]
-    spec_is_range = "-" in curr_year_spec
-
+    if not res.stdout:
+        # in some cases when a file was renamed, --follow won't allow getting the last modified year
+        res = subprocess.run(
+            ["git", "log", "--format=%ad", "--date=format:%Y", "-1", file],
+            capture_output=True,
+            text=True,
+        )
     changed_years = res.stdout.splitlines()
     last_modified_year_real = int(changed_years[0])
+
+    curr_year_spec = line.split(" ")[3]
+    spec_is_range = "-" in curr_year_spec
 
     after_year_str = "NVIDIA CORPORATION & AFFILIATES. All rights reserved."
 
@@ -71,9 +80,9 @@ def test_src_copyright_header(py_file: Path):
     with py_file.open() as file:
         first_lines = [next(file).strip() for _ in range(HEADER_LINES)]
 
-    assert (
-        first_lines[0] == "# SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES"
-    ), "SPDX-FileCopyrightText is not valid"
+    assert first_lines[0] == "# SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES", (
+        "SPDX-FileCopyrightText is not valid"
+    )
     assert first_lines[1] == prepare_copyright_with_year(py_file, first_lines[1]), "Copyright year is not valid"
     assert "\n".join(first_lines[2:]) == "\n".join(HEADER.splitlines()[2:]), f"Header mismatch in {py_file}"
 

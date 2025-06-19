@@ -14,16 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import shutil
 from concurrent.futures import Future
 from pathlib import Path
-from typing import Generator
+from typing import Generator, cast
 from unittest.mock import Mock, patch
 
 import pytest
 
-from cloudai import BaseInstaller, InstallStatusResult
-from cloudai._core.installables import DockerImage, GitRepo, Installable
-from cloudai.systems import SlurmSystem
+from cloudai.core import BaseInstaller, DockerImage, File, GitRepo, Installable, InstallStatusResult
+from cloudai.systems.slurm import SlurmInstaller, SlurmSystem
 from cloudai.util import prepare_output_dir
 
 
@@ -103,14 +103,30 @@ class TestBaseInstaller:
 
         installer.install([docker_image, docker_image])
 
-        assert mock_executor.return_value.__enter__.return_value.submit.call_count == 1
+        assert mock_executor.return_value.__enter__.return_value.submit.call_count == 1 + len(
+            installer.system.system_installables()
+        )
 
     def test_uninstalls_only_uniq(self, mock_executor: Mock, installer: MyInstaller, docker_image: DockerImage):
-        mock_executor.return_value.__enter__.return_value.submit.return_value = create_real_future(0)
+        mock_executor.return_value.__enter__.return_value.submit.return_value = create_real_future(
+            installer.uninstall_one(docker_image)
+        )
 
         installer.uninstall([docker_image, docker_image])
 
-        assert mock_executor.return_value.__enter__.return_value.submit.call_count == 1
+        assert mock_executor.return_value.__enter__.return_value.submit.call_count == 1 + len(
+            installer.system.system_installables()
+        )
+
+    def test_all_items_with_duplicates(self, _, installer: MyInstaller, docker_image: DockerImage):
+        all_items = installer.all_items([docker_image, docker_image], with_duplicates=True)
+        assert len(all_items) == 3
+        assert all_items[:2] == [docker_image, docker_image]
+
+    def test_all_items_without_duplicates(self, _, installer: MyInstaller, docker_image: DockerImage):
+        all_items = installer.all_items([docker_image, docker_image])
+        assert len(all_items) == 2
+        assert docker_image in all_items
 
 
 @pytest.mark.parametrize(
@@ -123,6 +139,21 @@ class TestBaseInstaller:
 )
 def test_docker_cache_filename(url: str, expected: str):
     assert DockerImage(url).cache_filename == expected, f"Input: {url}"
+
+
+def test_docker_image_installed_path():
+    docker_image = DockerImage("fake_url/img")
+
+    # Test with string path (URL)
+    string_path = "fake_url/img"
+    docker_image._installed_path = string_path
+    assert docker_image.installed_path == "fake_url/img"
+
+    # Test with Path object
+    path_obj = Path("/another/path")
+    docker_image._installed_path = path_obj
+    assert isinstance(docker_image.installed_path, Path)
+    assert docker_image.installed_path == path_obj.absolute()
 
 
 @pytest.mark.parametrize(
@@ -167,3 +198,79 @@ class TestPrepareOutputDir:
         subdir = no_access_dir / "subdir"
         assert prepare_output_dir(subdir) is None
         assert f"Output path '{subdir.absolute()}' is not accessible:" in caplog.text
+
+
+def test_system_installables_are_used(slurm_system: SlurmSystem):
+    installer = MyInstaller(slurm_system)
+    installer.install_one = Mock(return_value=InstallStatusResult(True))
+    installer.uninstall_one = Mock(return_value=InstallStatusResult(True))
+    installer.is_installed_one = Mock(return_value=InstallStatusResult(True))
+    installer.mark_as_installed_one = Mock(return_value=InstallStatusResult(True))
+    installer._populate_successful_install = Mock()
+
+    installer.install([])
+    assert installer.install_one.call_count == len(slurm_system.system_installables())
+
+    installer.uninstall([])
+    assert installer.uninstall_one.call_count == len(slurm_system.system_installables())
+
+    installer.is_installed([])
+    assert installer.is_installed_one.call_count == len(slurm_system.system_installables())
+
+    installer.mark_as_installed([])
+    assert installer.mark_as_installed_one.call_count == len(slurm_system.system_installables())
+
+
+class TestSuccessIsPopulated:
+    @pytest.fixture
+    def installer(self, slurm_system: SlurmSystem):
+        slurm_system.install_path.mkdir(parents=True, exist_ok=True)
+        installer = SlurmInstaller(slurm_system)
+        installer._check_prerequisites = Mock(return_value=InstallStatusResult(True))
+        # make sure system installables are installed
+        for ins in installer.system.system_installables():
+            item = cast(File, ins)
+            shutil.copyfile(item.src, installer.system.install_path / item.src.name, follow_symlinks=False)
+
+        return installer
+
+    def test_both_installed(self, installer: SlurmInstaller):
+        f1, f2 = File(src=Path(__file__)), File(src=Path(__file__))
+        res = installer.install([f1, f2])
+        assert res.success
+        assert f1._installed_path is not None, "First file is not installed"
+        assert f2._installed_path is not None, "Second file is not installed"
+        assert f1._installed_path == f2._installed_path, "Files are installed to different paths"
+
+    def test_both_is_installed(self, installer: SlurmInstaller):
+        f = installer.system.install_path / "file"
+        f.touch()
+        f1, f2 = File(src=f), File(src=f)
+        res = installer.is_installed([f1, f2])
+        assert res.success, res.message
+        assert f1._installed_path is not None, "First file is not installed"
+        assert f2._installed_path is not None, "Second file is not installed"
+        assert f1._installed_path == f2._installed_path, "Files are installed to different paths"
+
+    def test_order_of_items_does_not_matter(self, installer: SlurmInstaller):
+        f = installer.system.install_path / "file"
+        f1, f2 = File(src=f), File(src=f)
+        assert f1._installed_path is None, "First file is installed before testing"
+        assert f2._installed_path is None, "Second file is installed before testing"
+
+        installer._populate_successful_install([f1, f2], {})
+        assert f1._installed_path is None, "First file was marked as installed, but should not be"
+        assert f2._installed_path is None, "Second file was marked as installed, but should not be"
+
+        installer._populate_successful_install([f1, f2], {f1: InstallStatusResult(success=True)})
+        assert f1._installed_path is not None, (
+            "First ('self', present in the statuses) file was not marked as installed"
+        )
+        assert f2._installed_path is not None, "Second file was not marked as installed"
+
+        f1._installed_path, f2._installed_path = None, None
+        installer._populate_successful_install([f2, f1], {f1: InstallStatusResult(success=True)})
+        assert f1._installed_path is not None, (
+            "First ('self', present in the statuses) file was not marked as installed"
+        )
+        assert f2._installed_path is not None, "Second file was not marked as installed"
