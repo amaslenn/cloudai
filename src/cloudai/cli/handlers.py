@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import argparse
-import asyncio
 import copy
 import logging
 import signal
@@ -177,7 +176,7 @@ def generate_reports(system: System, test_scenario: TestScenario, result_dir: Pa
 
 
 def handle_non_dse_job(runner: Runner, args: argparse.Namespace) -> None:
-    asyncio.run(runner.run())
+    runner.run()
 
     logging.info(f"All test scenario results stored at: {runner.runner.scenario_root}")
 

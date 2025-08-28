@@ -17,8 +17,13 @@
 import asyncio
 import datetime
 import logging
+import threading
+import time
 from types import FrameType
 from typing import Optional
+
+from rich.live import Live
+from rich.table import Table
 
 from .base_runner import BaseRunner
 from .exceptions import JobFailureError
@@ -80,17 +85,48 @@ class Runner:
 
         return runner_class(mode, system, test_scenario, results_root)
 
-    async def run(self):
+    def _update_progress(self) -> Table:
+        table = Table(border_style=None)
+        table.add_column("Task")
+        table.add_column("ID")
+        table.add_column("Status")
+
+        for tr in self.runner.test_scenario.test_runs:
+            id, status = "n/a", "not started"
+            if tr in self.runner.testrun_to_job_map:
+                job = self.runner.testrun_to_job_map[tr]
+                id = str(job.id)
+                status = "in progress" if job in self.runner.jobs else "completed"
+            table.add_row(tr.name, id, status)
+
+        return table
+
+    def run(self):
         """Run the test scenario using the instantiated runner."""
+        self.loop = asyncio.new_event_loop()
+
+        def _run(loop):
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
+
+        self.t = threading.Thread(target=_run, args=(self.loop,), daemon=True)
+        self.t.start()
         try:
-            await self.runner.run()
+            task = asyncio.run_coroutine_threadsafe(self.runner.run(), self.loop)
+            with Live(refresh_per_second=4) as live:
+                while not task.done():
+                    time.sleep(1)
+                    live.update(self._update_progress())
+            task.result()  # to propagate exceptions
             logging.debug("All jobs finished successfully.")
         except asyncio.CancelledError:
             logging.info("Runner cancelled, performing cleanup...")
-            await self.runner.shutdown()
-            return
+            asyncio.run_coroutine_threadsafe(self.runner.shutdown(), self.loop).result()
         except JobFailureError as exc:
             logging.debug(f"Runner failed JobFailure exception: {exc}", exc_info=True)
+        finally:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+            self.t.join()
 
     def _cancel_all(self):
         # the below code might look excessive, this is to address https://docs.astral.sh/ruff/rules/asyncio-dangling-task/
