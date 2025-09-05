@@ -1,0 +1,602 @@
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Running AI Dynamo with CloudAI &#8212; CloudAI</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/nvidia-sphinx-theme.css?v=df3ac72c" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'ai_dynamo';</script>
+    <link rel="icon" href="_static/favicon.png"/>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Reporting" href="reporting.html" />
+    <link rel="prev" title="Development" href="DEV.html" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+
+
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="CloudAI - Home"/>
+    <img src="_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="CloudAI - Home"/>
+  
+  
+    <p class="title logo__title">CloudAI</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="CloudAI - Home"/>
+    <img src="_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="CloudAI - Home"/>
+  
+  
+    <p class="title logo__title">CloudAI</p>
+  
+</a>
+
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Table of Contents">
+  <p class="bd-links__title" role="heading" aria-level="1">Table of Contents</p>
+  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="DEV.html">Development</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Running AI Dynamo with CloudAI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reporting.html">Reporting</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Running AI Dynamo with CloudAI</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="running-ai-dynamo-with-cloudai">
+<h1>Running AI Dynamo with CloudAI<a class="headerlink" href="#running-ai-dynamo-with-cloudai" title="Link to this heading">#</a></h1>
+<p>CloudAI supports end-to-end inference benchmarking of large language models using <a class="reference external" href="https://github.com/ai-dynamo/dynamo">AI Dynamo</a>. This section explains how to run AI Dynamo jobs via CloudAI, beginning with setting up the environment and downloading Hugging Face model weights, and continuing through job submission and monitoring.</p>
+<p>In particular, this section will cover:</p>
+<ul class="simple">
+<li><p>How to download model weights using <code class="docutils literal notranslate"><span class="pre">huggingface-cli</span></code> and configure <code class="docutils literal notranslate"><span class="pre">HUGGING_FACE_HOME</span></code></p></li>
+<li><p>How to write and adjust a CloudAI test schema for AI Dynamo</p></li>
+<li><p>How to switch the model or scale node resources</p></li>
+<li><p>How to monitor the job and interpret the results</p></li>
+</ul>
+<p>CloudAI abstracts away most of the complexity in coordinating frontend, prefill, and decode nodes for AI Dynamo. Users are responsible for downloading the model weights, configuring the appropriate environment variable, and preparing the test schema.</p>
+<hr class="docutils" />
+<section id="step-1-download-model-weights-using-hugging-face-cli">
+<h2>Step 1: Download Model Weights Using Hugging Face CLI<a class="headerlink" href="#step-1-download-model-weights-using-hugging-face-cli" title="Link to this heading">#</a></h2>
+<p>Install the Hugging Face CLI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-U<span class="w"> </span><span class="s2">&quot;huggingface_hub[cli]&quot;</span>
+</pre></div>
+</div>
+<p>You need to create a Hugging Face account and generate an access token:</p>
+<ol class="arabic simple">
+<li><p>Visit https://huggingface.co/</p></li>
+<li><p>Click “Sign Up” to create a new account</p></li>
+<li><p>Fill in your personal information and complete the registration process</p></li>
+<li><p>Go to https://huggingface.co/settings/tokens</p></li>
+<li><p>Click “+ Create new token”</p></li>
+<li><p>Name your token and select appropriate permissions</p></li>
+<li><p>Save the generated token in a secure location - you’ll need it for authentication</p></li>
+</ol>
+<p>Log in using your Hugging Face token:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>hf<span class="w"> </span>login
+</pre></div>
+</div>
+<p>Download the model weights and tokenizer to a HF_HOME that will serve as the Hugging Face cache:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>/path/to/hf_home/
+$<span class="w"> </span>hf<span class="w"> </span>download<span class="w"> </span>nvidia/Llama-3.1-405B-Instruct-FP8
+$<span class="w"> </span>hf<span class="w"> </span>download<span class="w"> </span>hf-internal-testing/llama-tokenizer
+</pre></div>
+</div>
+<p>You can verify the model cache using:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>hf<span class="w"> </span>scan-cache<span class="w"> </span>-vvv
+
+REPO<span class="w"> </span>ID<span class="w">                             </span>REPO<span class="w"> </span>TYPE<span class="w"> </span>SIZE<span class="w"> </span>ON<span class="w"> </span>DISK
+-----------------------------------<span class="w"> </span>---------<span class="w"> </span>------------
+hf-internal-testing/llama-tokenizer<span class="w"> </span>model<span class="w">     </span><span class="m">2</span>.3M
+nvidia/Llama-3.1-405B-Instruct-FP8<span class="w">  </span>model<span class="w">     </span><span class="m">410</span>.1G
+
+Done<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">0</span>.3s.<span class="w"> </span>Scanned<span class="w"> </span><span class="m">2</span><span class="w"> </span>repo<span class="o">(</span>s<span class="o">)</span><span class="w"> </span><span class="k">for</span><span class="w"> </span>a<span class="w"> </span>total<span class="w"> </span>of<span class="w"> </span><span class="m">410</span>.1G.
+</pre></div>
+</div>
+<p>The path to the downloaded weights should be consistent with the structure expected by the Hugging Face ecosystem.</p>
+</section>
+<hr class="docutils" />
+<section id="step-2-configure-huggingface-home-in-the-test-schema">
+<h2>Step 2: Configure <code class="docutils literal notranslate"><span class="pre">huggingface_home</span></code> in the Test Schema<a class="headerlink" href="#step-2-configure-huggingface-home-in-the-test-schema" title="Link to this heading">#</a></h2>
+<p>Set the <code class="docutils literal notranslate"><span class="pre">huggingface_home</span></code> variable in the test schema file (e.g., <code class="docutils literal notranslate"><span class="pre">test.toml</span></code>) so that CloudAI can locate the model weights:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama3.1_405b_fp8&quot;</span>
+<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama3.1_405b_fp8&quot;</span>
+<span class="n">test_template_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;AIDynamo&quot;</span>
+
+<span class="k">[cmd_args]</span>
+<span class="n">docker_image_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;/path/to/docker/image&quot;</span>
+<span class="n">served_model_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;nvidia/Llama-3.1-405B-Instruct-FP8&quot;</span>
+<span class="n">huggingface_home_host_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;/your/path/to/hf_home&quot;</span>
+<span class="n">huggingface_home_container_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;/root/.cache/huggingface&quot;</span>
+
+<span class="w">  </span><span class="k">[cmd_args.dynamo.frontend]</span>
+<span class="w">  </span><span class="k">[cmd_args.dynamo.prefill_worker]</span>
+<span class="w">  </span><span class="n">num_nodes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span>
+
+<span class="w">  </span><span class="k">[cmd_args.dynamo.decode_worker]</span>
+<span class="w">  </span><span class="n">num_nodes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span>
+
+<span class="w">  </span><span class="k">[cmd_args.genai_perf]</span>
+<span class="w">  </span><span class="n">endpoint</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;v1/chat/completions&quot;</span>
+<span class="w">  </span><span class="n">endpoint_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;chat&quot;</span>
+<span class="w">  </span><span class="n">streaming</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</pre></div>
+</div>
+<p>This location should point to the root directory used with <code class="docutils literal notranslate"><span class="pre">--local-dir</span></code> in the download step. CloudAI will use this directory to locate and load the appropriate model weights.</p>
+</section>
+<hr class="docutils" />
+<section id="step-3-node-configuration-for-ai-dynamo">
+<h2>Step 3: Node Configuration for AI Dynamo<a class="headerlink" href="#step-3-node-configuration-for-ai-dynamo" title="Link to this heading">#</a></h2>
+<p>AI Dynamo jobs use three distinct types of nodes:</p>
+<ul class="simple">
+<li><p><strong>Frontend node</strong>: Hosts the coordination services (<code class="docutils literal notranslate"><span class="pre">etcd</span></code>, <code class="docutils literal notranslate"><span class="pre">nats</span></code>), the <strong>frontend server</strong>, the <strong>request generator</strong> (<code class="docutils literal notranslate"><span class="pre">genai-perf</span></code>), and the first decode worker.</p></li>
+<li><p><strong>Prefill node(s)</strong>: Handle the prefill stage of inference</p></li>
+<li><p><strong>Decode node(s)</strong>: Handle the decode stage of inference (optional, depending on model and setup)</p></li>
+</ul>
+<p>The total number of nodes required must be:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">num_prefill_nodes</span> <span class="o">+</span> <span class="n">num_decode_nodes</span>
+</pre></div>
+</div>
+<p>If there is a mismatch in the number of nodes between the schema and the test scenario, CloudAI will use the number of nodes specified in the test schema, ignoring the value in the test scenario.</p>
+<p>All node role assignments and orchestration are automatically managed by CloudAI.</p>
+</section>
+<hr class="docutils" />
+<section id="step-4-launching-and-monitoring-the-job">
+<h2>Step 4: Launching and Monitoring the Job<a class="headerlink" href="#step-4-launching-and-monitoring-the-job" title="Link to this heading">#</a></h2>
+<p>To run the job:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>cloudaix.py<span class="w"> </span>run<span class="w"> </span>--system-config<span class="w"> </span>conf/staging/ai_dynamo/system/oci.toml<span class="w"> </span>--tests-dir<span class="w"> </span>conf/staging/ai_dynamo/test<span class="w"> </span>--test-scenario<span class="w"> </span>conf/staging/ai_dynamo/test_scenario/ai_dynamo.toml
+</pre></div>
+</div>
+<section id="option-1-monitor-via-slurm">
+<h3>Option 1: Monitor via Slurm<a class="headerlink" href="#option-1-monitor-via-slurm" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>watch<span class="w"> </span>squeue<span class="w"> </span>--me
+</pre></div>
+</div>
+</section>
+<section id="option-2-monitor-output-logs">
+<h3>Option 2: Monitor Output Logs<a class="headerlink" href="#option-2-monitor-output-logs" title="Link to this heading">#</a></h3>
+<p>Navigate to the results directory created by CloudAI and observe the logs:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span><span class="nb">cd</span><span class="w"> </span>./results/../
+$<span class="w"> </span>watch<span class="w"> </span>tail<span class="w"> </span>-n<span class="w"> </span><span class="m">4</span><span class="w"> </span>*.txt
+</pre></div>
+</div>
+<p>The frontend node will initially wait to allow weight loading on all nodes. Once ready, it will launch <code class="docutils literal notranslate"><span class="pre">genai-perf</span></code>, which begins generating requests to the frontend server. All servers cooperate to complete inference, and the output will appear in <code class="docutils literal notranslate"><span class="pre">stdout.txt</span></code>.</p>
+</section>
+</section>
+<section id="step-5-review-results">
+<h2>Step 5: Review Results<a class="headerlink" href="#step-5-review-results" title="Link to this heading">#</a></h2>
+<p>After job completion, CloudAI will place the output logs and result files in the designated results directory. To analyze performance metrics and validate inference outcomes:</p>
+<ul class="simple">
+<li><p>Navigate to the results directory (e.g., ./results/…)</p></li>
+<li><p>Most importantly, open the profile_genai_perf.csv file to examine the final benchmarking results</p></li>
+</ul>
+<p>This CSV file includes detailed metrics collected by genai-perf, such as request latency, throughput, and system utilization statistics. Use this data to evaluate the model’s performance and identify potential bottlenecks or optimization opportunities.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Metric</span><span class="p">,</span><span class="n">avg</span><span class="p">,</span><span class="nb">min</span><span class="p">,</span><span class="nb">max</span><span class="p">,</span><span class="n">p99</span><span class="p">,</span><span class="n">p95</span><span class="p">,</span><span class="n">p90</span><span class="p">,</span><span class="n">p75</span><span class="p">,</span><span class="n">p50</span><span class="p">,</span><span class="n">p25</span>
+<span class="n">Time</span> <span class="n">To</span> <span class="n">First</span> <span class="n">Token</span> <span class="p">(</span><span class="n">ms</span><span class="p">),</span><span class="s2">&quot;1,146.31&quot;</span><span class="p">,</span><span class="mf">249.48</span><span class="p">,</span><span class="s2">&quot;3,485.23&quot;</span><span class="p">,</span><span class="s2">&quot;3,457.97&quot;</span><span class="p">,</span><span class="s2">&quot;3,349.56&quot;</span><span class="p">,</span><span class="s2">&quot;3,215.06&quot;</span><span class="p">,</span><span class="s2">&quot;1,330.93&quot;</span><span class="p">,</span><span class="mf">640.07</span><span class="p">,</span><span class="mf">286.52</span>
+<span class="n">Time</span> <span class="n">To</span> <span class="n">Second</span> <span class="n">Token</span> <span class="p">(</span><span class="n">ms</span><span class="p">),</span><span class="mf">26.05</span><span class="p">,</span><span class="mf">0.00</span><span class="p">,</span><span class="mf">133.51</span><span class="p">,</span><span class="mf">96.12</span><span class="p">,</span><span class="mf">36.56</span><span class="p">,</span><span class="mf">34.88</span><span class="p">,</span><span class="mf">34.35</span><span class="p">,</span><span class="mf">33.55</span><span class="p">,</span><span class="mf">1.78</span>
+<span class="n">Request</span> <span class="n">Latency</span> <span class="p">(</span><span class="n">ms</span><span class="p">),</span><span class="s2">&quot;6,406.20&quot;</span><span class="p">,</span><span class="s2">&quot;5,371.47&quot;</span><span class="p">,</span><span class="s2">&quot;9,608.72&quot;</span><span class="p">,</span><span class="s2">&quot;9,436.13&quot;</span><span class="p">,</span><span class="s2">&quot;9,046.58&quot;</span><span class="p">,</span><span class="s2">&quot;9,028.16&quot;</span><span class="p">,</span><span class="s2">&quot;6,549.60&quot;</span><span class="p">,</span><span class="s2">&quot;5,690.23&quot;</span><span class="p">,</span><span class="s2">&quot;5,493.63&quot;</span>
+<span class="n">Inter</span> <span class="n">Token</span> <span class="n">Latency</span> <span class="p">(</span><span class="n">ms</span><span class="p">),</span><span class="mf">30.35</span><span class="p">,</span><span class="mf">27.59</span><span class="p">,</span><span class="mf">35.60</span><span class="p">,</span><span class="mf">35.23</span><span class="p">,</span><span class="mf">33.88</span><span class="p">,</span><span class="mf">32.53</span><span class="p">,</span><span class="mf">31.05</span><span class="p">,</span><span class="mf">30.13</span><span class="p">,</span><span class="mf">29.04</span>
+<span class="n">Output</span> <span class="n">Sequence</span> <span class="n">Length</span> <span class="p">(</span><span class="n">tokens</span><span class="p">),</span><span class="mf">174.45</span><span class="p">,</span><span class="mf">164.00</span><span class="p">,</span><span class="mf">187.00</span><span class="p">,</span><span class="mf">186.22</span><span class="p">,</span><span class="mf">183.10</span><span class="p">,</span><span class="mf">180.10</span><span class="p">,</span><span class="mf">177.00</span><span class="p">,</span><span class="mf">174.00</span><span class="p">,</span><span class="mf">171.75</span>
+<span class="n">Input</span> <span class="n">Sequence</span> <span class="n">Length</span> <span class="p">(</span><span class="n">tokens</span><span class="p">),</span><span class="s2">&quot;3,000.05&quot;</span><span class="p">,</span><span class="s2">&quot;2,999.00&quot;</span><span class="p">,</span><span class="s2">&quot;3,001.00&quot;</span><span class="p">,</span><span class="s2">&quot;3,001.00&quot;</span><span class="p">,</span><span class="s2">&quot;3,001.00&quot;</span><span class="p">,</span><span class="s2">&quot;3,000.00&quot;</span><span class="p">,</span><span class="s2">&quot;3,000.00&quot;</span><span class="p">,</span><span class="s2">&quot;3,000.00&quot;</span><span class="p">,</span><span class="s2">&quot;3,000.00&quot;</span>
+
+<span class="n">Metric</span><span class="p">,</span><span class="n">Value</span>
+<span class="n">Output</span> <span class="n">Token</span> <span class="n">Throughput</span> <span class="p">(</span><span class="n">per</span> <span class="n">sec</span><span class="p">),</span><span class="mf">261.25</span>
+<span class="n">Request</span> <span class="n">Throughput</span> <span class="p">(</span><span class="n">per</span> <span class="n">sec</span><span class="p">),</span><span class="mf">1.50</span>
+<span class="n">Request</span> <span class="n">Count</span> <span class="p">(</span><span class="n">count</span><span class="p">),</span><span class="mf">40.00</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="DEV.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Development</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="reporting.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Reporting</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+
+
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-download-model-weights-using-hugging-face-cli">Step 1: Download Model Weights Using Hugging Face CLI</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-configure-huggingface-home-in-the-test-schema">Step 2: Configure <code class="docutils literal notranslate"><span class="pre">huggingface_home</span></code> in the Test Schema</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-node-configuration-for-ai-dynamo">Step 3: Node Configuration for AI Dynamo</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-launching-and-monitoring-the-job">Step 4: Launching and Monitoring the Job</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-monitor-via-slurm">Option 1: Monitor via Slurm</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-monitor-output-logs">Option 2: Monitor Output Logs</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-review-results">Step 5: Review Results</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+<a class="footer-brand logo" href="https://www.nvidia.com">
+  <img src="_static/nvidia-logo-horiz-rgb-1c-blk-for-screen.svg" class="logo__image only-light" alt="NVIDIA"/>
+  <img src="_static/nvidia-logo-horiz-rgb-1c-wht-for-screen.svg" class="logo__image only-dark" alt="NVIDIA"/>
+</a></div>
+      
+        <div class="footer-item">
+
+<div class="footer-links">
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/">Privacy Policy</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/privacy-center/">Manage My Privacy</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/preferences/start/">Do Not Sell or Share My Data</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/terms-of-service/">Terms of Service</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/accessibility/">Accessibility</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/company-policies/">Corporate Policies</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/product-security/">Product Security</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/contact/">Contact</a>
+  
+  
+  
+</div>
+</div>
+      
+        <div class="footer-item">
+
+
+
+
+  <p class="copyright">
+    
+      Copyright © 2025, NVIDIA CORPORATION &amp; AFFILIATES.
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+  </body>
+</html>

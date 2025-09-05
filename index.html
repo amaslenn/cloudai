@@ -1,0 +1,710 @@
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>CloudAI Benchmark Framework &#8212; CloudAI</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/nvidia-sphinx-theme.css?v=df3ac72c" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'index';</script>
+    <link rel="icon" href="_static/favicon.png"/>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Development" href="DEV.html" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+
+
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="#">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="CloudAI - Home"/>
+    <img src="_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="CloudAI - Home"/>
+  
+  
+    <p class="title logo__title">CloudAI</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="#">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="CloudAI - Home"/>
+    <img src="_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="CloudAI - Home"/>
+  
+  
+    <p class="title logo__title">CloudAI</p>
+  
+</a>
+
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Table of Contents">
+  <p class="bd-links__title" role="heading" aria-level="1">Table of Contents</p>
+  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="DEV.html">Development</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ai_dynamo.html">Running AI Dynamo with CloudAI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reporting.html">Reporting</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none"></div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="cloudai-benchmark-framework">
+<h1>CloudAI Benchmark Framework<a class="headerlink" href="#cloudai-benchmark-framework" title="Link to this heading">#</a></h1>
+<p>CloudAI benchmark framework aims to develop an industry standard benchmark focused on grading Data Center (DC) scale AI systems in the Cloud. The primary motivation is to provide automated benchmarking on various systems.</p>
+<section id="get-started">
+<h2>Get Started<a class="headerlink" href="#get-started" title="Link to this heading">#</a></h2>
+<p><strong>Note</strong>: instructions for installing a custom python version are available <a class="reference internal" href="#install-custom-python-version"><span class="std std-ref">here</span></a>.</p>
+<p><strong>Note</strong>: instructions for setting up access for <code class="docutils literal notranslate"><span class="pre">enroot</span></code> are available <a class="reference internal" href="#set-up-access-to-the-private-ngc-registry"><span class="std std-ref">here</span></a>.</p>
+<ol class="arabic">
+<li><p>Clone the CloudAI repository to your local machine:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:NVIDIA/cloudai.git
+<span class="nb">cd</span><span class="w"> </span>cloudai
+</pre></div>
+</div>
+</li>
+<li><p>Create a virtual environment:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
+<span class="nb">source</span><span class="w"> </span>venv/bin/activate
+</pre></div>
+</div>
+</li>
+<li><p>Next, install the required packages:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>.
+</pre></div>
+</div>
+<p>For development please use the following command:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s1">&#39;.[dev]&#39;</span><span class="w">  </span>
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+<section id="key-concepts">
+<h2>Key Concepts<a class="headerlink" href="#key-concepts" title="Link to this heading">#</a></h2>
+<p>CloudAI operates on four main schemas:</p>
+<ul class="simple">
+<li><p><strong>System Schema</strong>: Describes the system, including the scheduler type, node list, and global environment variables.</p></li>
+<li><p><strong>Test Schema</strong>: An instance of a test template with custom arguments and environment variables.</p></li>
+<li><p><strong>Test Scenario Schema</strong>: A set of tests with dependencies and additional descriptions about the test scenario.</p></li>
+</ul>
+<p>These schemas enable CloudAI to be flexible and compatible with different systems and configurations.</p>
+</section>
+<section id="support-matrix">
+<h2>Support matrix<a class="headerlink" href="#support-matrix" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Test</p></th>
+<th class="head"><p>Slurm</p></th>
+<th class="head"><p>Kubernetes</p></th>
+<th class="head"><p>RunAI</p></th>
+<th class="head"><p>Standalone</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>ChakraReplay</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-odd"><td><p>GPT</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-even"><td><p>Grok</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-odd"><td><p>NCCL</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-even"><td><p>NeMo Launcher</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-odd"><td><p>NeMo Run</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-even"><td><p>Nemotron</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-odd"><td><p>Sleep</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>✅</p></td>
+</tr>
+<tr class="row-even"><td><p>UCC</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-odd"><td><p>SlurmContainer</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-even"><td><p>MegatronRun (experimental)</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="details">
+<h2>Details<a class="headerlink" href="#details" title="Link to this heading">#</a></h2>
+<section id="set-up-access-to-the-private-ngc-registry">
+<span id="id1"></span><h3>Set Up Access to the Private NGC Registry<a class="headerlink" href="#set-up-access-to-the-private-ngc-registry" title="Link to this heading">#</a></h3>
+<p>First, ensure you have access to the Docker repository. Follow the following steps:</p>
+<ol class="arabic simple">
+<li><p><strong>Sign In</strong>: Go to <a class="reference external" href="https://ngc.nvidia.com/signin">NVIDIA NGC</a> and sign in with your credentials.</p></li>
+<li><p><strong>Generate API Key</strong>:</p>
+<ul class="simple">
+<li><p>On the top right corner, click on the dropdown menu next to your profile</p></li>
+<li><p>Select “Setup”</p></li>
+<li><p>In the “Setup” section, find “Keys/Secrets”</p></li>
+<li><p>Click “Generate API Key” and confirm when prompted. A new API key will be presented</p></li>
+<li><p><strong>Note</strong>: Save this API key locally as you will not be able to view it again on NGC</p></li>
+</ul>
+</li>
+</ol>
+<p>Next, set up your enroot credentials. Ensure you have the correct credentials under <code class="docutils literal notranslate"><span class="pre">~/.config/enroot/.credentials</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>machine nvcr.io login $oauthtoken password &lt;api-key&gt;
+</pre></div>
+</div>
+<p>Replace <code class="docutils literal notranslate"><span class="pre">&lt;api-key&gt;</span></code> with your respective credentials. Keep <code class="docutils literal notranslate"><span class="pre">$oauthtoken</span></code> as is.</p>
+</section>
+<section id="install-custom-python-version">
+<span id="id2"></span><h3>Install custom python version<a class="headerlink" href="#install-custom-python-version" title="Link to this heading">#</a></h3>
+<p>If your system python version is not supported, you can install a custom version using <a class="reference external" href="https://docs.astral.sh/uv/getting-started/installation/">uv</a> tool:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+<span class="nb">source</span><span class="w"> </span><span class="nv">$HOME</span>/.local/bin/env
+uv<span class="w"> </span>venv<span class="w"> </span>-p<span class="w"> </span><span class="m">3</span>.10
+<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+<span class="c1"># optionally you might need to install pip which is not installed by default:</span>
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-U<span class="w"> </span>pip
+</pre></div>
+</div>
+</section>
+</section>
+<section id="cloudai-modes-usage-examples">
+<h2>CloudAI Modes Usage Examples<a class="headerlink" href="#cloudai-modes-usage-examples" title="Link to this heading">#</a></h2>
+<p>CloudAI supports five modes:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#install"><span class="std std-ref">install</span></a> - Use the install mode to install all test templates in the specified installation path</p></li>
+<li><p><a class="reference internal" href="#dry-run"><span class="std std-ref">dry-run</span></a> - Use the dry-run mode to simulate running experiments without actually executing them. This is useful for verifying configurations and testing experiment setups</p></li>
+<li><p><a class="reference internal" href="#run"><span class="std std-ref">run</span></a> - Use the run mode to run experiments</p></li>
+<li><p><a class="reference internal" href="#generate-report"><span class="std std-ref">generate-report</span></a> - Use the generate-report mode to generate reports under the test directories alongside the raw data</p></li>
+<li><p><a class="reference internal" href="#uninstall"><span class="std std-ref">uninstall</span></a> - Use the uninstall mode to remove installed test templates</p></li>
+</ul>
+<section id="install">
+<span id="id3"></span><h3>install<a class="headerlink" href="#install" title="Link to this heading">#</a></h3>
+<p>To install test prerequisites, run CloudAI CLI in install mode.</p>
+<p>Please make sure to use the correct system configuration file that corresponds to your current setup for installation and experiments.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cloudai<span class="w"> </span>install<span class="se">\</span>
+<span class="w">    </span>--system-config<span class="w"> </span>conf/common/system/example_slurm_cluster.toml<span class="se">\</span>
+<span class="w">    </span>--tests-dir<span class="w"> </span>conf/common/test
+</pre></div>
+</div>
+</section>
+<section id="dry-run">
+<span id="id4"></span><h3>dry-run<a class="headerlink" href="#dry-run" title="Link to this heading">#</a></h3>
+<p>To simulate running experiments without execution, use the dry-run mode:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cloudai<span class="w"> </span>dry-run<span class="se">\</span>
+<span class="w">    </span>--system-config<span class="w"> </span>conf/common/system/example_slurm_cluster.toml<span class="se">\</span>
+<span class="w">    </span>--tests-dir<span class="w"> </span>conf/common/test<span class="se">\</span>
+<span class="w">    </span>--test-scenario<span class="w"> </span>conf/common/test_scenario/sleep.toml
+</pre></div>
+</div>
+</section>
+<section id="run">
+<span id="id5"></span><h3>run<a class="headerlink" href="#run" title="Link to this heading">#</a></h3>
+<p>To run experiments, execute CloudAI CLI in run mode:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cloudai<span class="w"> </span>run<span class="se">\</span>
+<span class="w">    </span>--system-config<span class="w"> </span>conf/common/system/example_slurm_cluster.toml<span class="se">\</span>
+<span class="w">    </span>--tests-dir<span class="w"> </span>conf/common/test<span class="se">\</span>
+<span class="w">    </span>--test-scenario<span class="w"> </span>conf/common/test_scenario/sleep.toml
+</pre></div>
+</div>
+</section>
+<section id="generate-report">
+<span id="id6"></span><h3>generate-report<a class="headerlink" href="#generate-report" title="Link to this heading">#</a></h3>
+<p>To generate reports, execute CloudAI CLI in generate-report mode:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cloudai<span class="w"> </span>generate-report<span class="se">\</span>
+<span class="w">    </span>--system-config<span class="w"> </span>conf/common/system/example_slurm_cluster.toml<span class="se">\</span>
+<span class="w">    </span>--tests-dir<span class="w"> </span>conf/common/test<span class="se">\</span>
+<span class="w">    </span>--test-scenario<span class="w"> </span>conf/common/test_scenario/sleep.toml<span class="se">\</span>
+<span class="w">    </span>--result-dir<span class="w"> </span>/path/to/result_directory
+</pre></div>
+</div>
+<p>In the generate-report mode, use the –result-dir argument to specify a subdirectory under the output directory.
+This subdirectory is usually named with a timestamp for unique identification.</p>
+</section>
+<section id="uninstall">
+<span id="id7"></span><h3>uninstall<a class="headerlink" href="#uninstall" title="Link to this heading">#</a></h3>
+<p>To uninstall test prerequisites, run CloudAI CLI in uninstall mode:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cloudai<span class="w"> </span>uninstall<span class="se">\</span>
+<span class="w">    </span>--system-config<span class="w"> </span>conf/common/system/example_slurm_cluster.toml<span class="se">\</span>
+<span class="w">    </span>--tests-dir<span class="w"> </span>conf/common/test
+</pre></div>
+</div>
+<p>Verify TOML configs:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># verify all at once</span>
+cloudai<span class="w"> </span>verify-configs<span class="w"> </span>conf
+
+<span class="c1"># verify a single file</span>
+cloudai<span class="w"> </span>verify-configs<span class="w"> </span>conf/common/system/example_slurm_cluster.toml
+
+<span class="c1">#  verify all scenarios using specific folder with Test TOMLs</span>
+cloudai<span class="w"> </span>verify-configs<span class="w"> </span>--tests-dir<span class="w"> </span>conf/release/spcx/l40s/test<span class="w"> </span>conf/release/spcx/l40s/test_scenario
+</pre></div>
+</div>
+</section>
+</section>
+<section id="contribution">
+<h2>Contribution<a class="headerlink" href="#contribution" title="Link to this heading">#</a></h2>
+<p>Please feel free to contribute to the CloudAI project and share your insights. Your contributions are highly appreciated.</p>
+</section>
+<section id="license">
+<h2>License<a class="headerlink" href="#license" title="Link to this heading">#</a></h2>
+<p>This project is licensed under Apache 2.0. See the LICENSE file for detailed information.</p>
+</section>
+<section id="additional-documentation">
+<h2>Additional Documentation<a class="headerlink" href="#additional-documentation" title="Link to this heading">#</a></h2>
+<p>For more detailed instructions and guidance, including advanced usage and troubleshooting, please refer to the <a class="reference external" href="https://github.com/NVIDIA/cloudai/blob/main/USER_GUIDE.md">USER_GUIDE.md</a></p>
+<div class="toctree-wrapper compound">
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="DEV.html">Development</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="DEV.html#core-modules">Core Modules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="DEV.html#runners">Runners</a></li>
+<li class="toctree-l2"><a class="reference internal" href="DEV.html#installers">Installers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="DEV.html#systems">Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="DEV.html#cache">Cache</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ai_dynamo.html">Running AI Dynamo with CloudAI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ai_dynamo.html#step-1-download-model-weights-using-hugging-face-cli">Step 1: Download Model Weights Using Hugging Face CLI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ai_dynamo.html#step-2-configure-huggingface-home-in-the-test-schema">Step 2: Configure <code class="docutils literal notranslate"><span class="pre">huggingface_home</span></code> in the Test Schema</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ai_dynamo.html#step-3-node-configuration-for-ai-dynamo">Step 3: Node Configuration for AI Dynamo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ai_dynamo.html#step-4-launching-and-monitoring-the-job">Step 4: Launching and Monitoring the Job</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ai_dynamo.html#step-5-review-results">Step 5: Review Results</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="reporting.html">Reporting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="reporting.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reporting.html#notes-and-general-flow">Notes and general flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reporting.html#enable-disable-and-configure-reports">Enable, disable and configure reports</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reporting.html#report-registration">Report registration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reporting.html#report-configuration-implementation">Report configuration implementation</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="right-next"
+       href="DEV.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Development</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+
+
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#get-started">Get Started</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-concepts">Key Concepts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#support-matrix">Support matrix</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#details">Details</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#set-up-access-to-the-private-ngc-registry">Set Up Access to the Private NGC Registry</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#install-custom-python-version">Install custom python version</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cloudai-modes-usage-examples">CloudAI Modes Usage Examples</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#install">install</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dry-run">dry-run</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run">run</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#generate-report">generate-report</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#uninstall">uninstall</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contribution">Contribution</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#license">License</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-documentation">Additional Documentation</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+<a class="footer-brand logo" href="https://www.nvidia.com">
+  <img src="_static/nvidia-logo-horiz-rgb-1c-blk-for-screen.svg" class="logo__image only-light" alt="NVIDIA"/>
+  <img src="_static/nvidia-logo-horiz-rgb-1c-wht-for-screen.svg" class="logo__image only-dark" alt="NVIDIA"/>
+</a></div>
+      
+        <div class="footer-item">
+
+<div class="footer-links">
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/">Privacy Policy</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/privacy-center/">Manage My Privacy</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/preferences/start/">Do Not Sell or Share My Data</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/terms-of-service/">Terms of Service</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/accessibility/">Accessibility</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/company-policies/">Corporate Policies</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/product-security/">Product Security</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/contact/">Contact</a>
+  
+  
+  
+</div>
+</div>
+      
+        <div class="footer-item">
+
+
+
+
+  <p class="copyright">
+    
+      Copyright © 2025, NVIDIA CORPORATION &amp; AFFILIATES.
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+  </body>
+</html>
